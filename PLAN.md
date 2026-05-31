@@ -15,7 +15,7 @@ After each implementation stage, add, commit, and push the completed work to `ma
 - [x] Stage 1: Scaffold The App
 - [x] Stage 2: Extract And Model Green Book Content
 - [x] Stage 3: Define Client State And Grading
-- [ ] Stage 4: Build The Homepage UI
+- [x] Stage 4: Build The Homepage UI
 - [ ] Stage 5: Verification
 
 ## Stages
