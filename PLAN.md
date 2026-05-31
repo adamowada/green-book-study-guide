@@ -10,6 +10,14 @@ Source material comes from `TP600-4 The Soldiers Green Book_Aug 2025.pdf`. Relev
 
 After each implementation stage, add, commit, and push the completed work to `main`.
 
+## Progress
+
+- [x] Stage 1: Scaffold The App
+- [ ] Stage 2: Extract And Model Green Book Content
+- [ ] Stage 3: Define Client State And Grading
+- [ ] Stage 4: Build The Homepage UI
+- [ ] Stage 5: Verification
+
 ## Stages
 
 ### 1. Scaffold The App
