@@ -55,6 +55,13 @@ SKIPPED_IMAGES: Final = {
 }
 
 
+def flatten_to_white(image: Image.Image) -> Image.Image:
+    rgba_image = image.convert("RGBA")
+    white_background = Image.new("RGBA", rgba_image.size, (255, 255, 255, 255))
+    white_background.alpha_composite(rgba_image)
+    return white_background.convert("RGB")
+
+
 def extract_rank_images() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     pdf_path = repo_root / PDF_NAME
@@ -78,10 +85,7 @@ def extract_rank_images() -> None:
 
         source_image = page.images[image_index].image
         source_image.load()
-        image = source_image.copy()
-
-        if image.mode not in {"RGB", "RGBA"}:
-            image = image.convert("RGBA")
+        image = flatten_to_white(source_image)
 
         output_path = output_dir / filename
         image.save(output_path, format="PNG", optimize=True)

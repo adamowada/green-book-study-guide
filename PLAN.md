@@ -32,6 +32,7 @@ After each implementation stage, add, commit, and push the completed work to `ma
 - Add a one-time extraction workflow for the PDF:
   - Extract canonical text for the fixed sections into `lib/green-book-content.ts`.
   - Extract rank insignia images from PDF pages 94-99 into `public/ranks/`.
+  - Save rank insignia as opaque white-backed PNGs so PDF transparency does not render as black artifacts.
   - Map each rank image to its canonical rank title and accepted aliases.
 - Hard-code the final study data in TypeScript so the runtime app has no PDF dependency.
 - Use line/phrase-level blanks:
