@@ -9,6 +9,7 @@ import {
   Clock3,
   ListChecks,
   Medal,
+  Menu,
   PenLine,
   RotateCcw,
   Send,
@@ -16,9 +17,10 @@ import {
   Star,
   Target,
   Trash2,
+  X,
   type LucideIcon,
 } from 'lucide-react'
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
 
 import { Badge } from '@/components/badge'
 import { Button } from '@/components/button'
@@ -250,16 +252,16 @@ function SectionNav({
   answers,
   grade,
   submitted,
-  mobile = false,
+  onNavigate,
 }: {
   answers: AnswerMap
   grade: ModeGrade
   submitted: boolean
-  mobile?: boolean
+  onNavigate?: () => void
 }) {
   return (
-    <nav aria-label="Green Book sections" className={mobile ? '-mx-4 overflow-x-auto px-4 pb-2 lg:hidden' : ''}>
-      <div className={mobile ? 'flex min-w-max gap-2' : 'space-y-2'}>
+    <nav aria-label="Green Book sections">
+      <div className="space-y-2">
         {studySections.map((section) => {
           const Icon = sectionIcons[section.id]
           const sectionGrade = getSectionGrade(grade, section.id)
@@ -270,9 +272,10 @@ function SectionNav({
             <a
               key={section.id}
               href={`#${section.id}`}
+              onClick={onNavigate}
               className={clsx(
                 'group rounded-lg border border-zinc-200 bg-white text-left shadow-sm transition hover:border-green-800/30 hover:bg-green-50',
-                mobile ? 'flex w-52 shrink-0 flex-col gap-2 p-3' : 'block p-3',
+                'block p-3',
               )}
             >
               <div className="flex items-center justify-between gap-3">
@@ -284,7 +287,7 @@ function SectionNav({
                   {value}/{total}
                 </Badge>
               </div>
-              <div className={clsx(mobile ? '' : 'mt-3')}>
+              <div className="mt-3">
                 <ProgressBar value={value} total={total} submitted={submitted} compact />
               </div>
             </a>
@@ -499,6 +502,7 @@ function StudySectionPanel({
 
 export function StudyApp() {
   const [state, setState] = useStoredStudyState()
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const mode = state.mode
   const answers = getModeAnswers(state, mode)
@@ -507,6 +511,7 @@ export function StudyApp() {
   const answeredCount = useMemo(() => countAnsweredFields(allFields, answers), [answers])
   const headerValue = submitted ? grade.correctCount : answeredCount
   const headerTotal = submitted ? grade.totalCount : totalFieldCount
+  const mobileMenuId = 'green-book-mobile-menu'
 
   function handleModeChange(nextMode: Mode) {
     setState((currentState) => ({ ...currentState, mode: nextMode }))
@@ -537,14 +542,81 @@ export function StudyApp() {
   return (
     <main className="min-h-screen scroll-smooth bg-zinc-100 text-zinc-950">
       <header className="sticky top-0 z-30 border-b border-zinc-200 bg-zinc-50/95 backdrop-blur">
-        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8 lg:py-4">
+          <div className="flex items-center justify-between gap-4 lg:hidden">
             <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge color="green">Green Book</Badge>
-                <Badge color={submitted ? 'green' : 'amber'}>{submitted ? 'Submitted' : 'Practice'}</Badge>
+              <h1 className="truncate text-lg/7 font-semibold text-zinc-950 sm:text-xl/8">Green Book Memorizer</h1>
+              <p className="mt-0.5 text-sm/6 font-medium text-zinc-600" aria-live="polite">
+                {submitted ? 'Score' : 'Progress'} {headerValue}/{headerTotal}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label={isMobileMenuOpen ? 'Close section navigation' : 'Open section navigation'}
+              aria-controls={mobileMenuId}
+              aria-expanded={isMobileMenuOpen}
+              onClick={() => setIsMobileMenuOpen((currentValue) => !currentValue)}
+              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-100 hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-800"
+            >
+              {isMobileMenuOpen ? (
+                <X className="size-5" aria-hidden="true" />
+              ) : (
+                <Menu className="size-5" aria-hidden="true" />
+              )}
+            </button>
+          </div>
+
+          <div
+            id={mobileMenuId}
+            className={clsx(
+              'lg:hidden',
+              isMobileMenuOpen ? 'mt-3 max-h-[calc(100dvh-5rem)] overflow-y-auto border-t border-zinc-200 pt-3 pb-2' : 'hidden',
+            )}
+          >
+            <div className="space-y-4">
+              <ModeControl mode={mode} onModeChange={handleModeChange} />
+
+              <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm" aria-live="polite">
+                <div className="flex items-center justify-between gap-4 text-sm/6">
+                  <span className="font-semibold text-zinc-700">{submitted ? 'Score' : 'Progress'}</span>
+                  <span className="font-semibold text-zinc-950">
+                    {headerValue}/{headerTotal}
+                  </span>
+                </div>
+                <div className="mt-2 w-full">
+                  <ProgressBar value={headerValue} total={headerTotal} submitted={submitted} />
+                </div>
               </div>
-              <Heading className="mt-2">Green Book Memorizer</Heading>
+
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Button color="green" onClick={handleSubmit} disabled={submitted}>
+                  <Send data-slot="icon" aria-hidden="true" />
+                  Submit
+                </Button>
+                {submitted ? (
+                  <Button outline onClick={handleRetake}>
+                    <RotateCcw data-slot="icon" aria-hidden="true" />
+                    Retake
+                  </Button>
+                ) : null}
+                <Button outline onClick={handleClearAll}>
+                  <Trash2 data-slot="icon" aria-hidden="true" />
+                  Clear all
+                </Button>
+              </div>
+
+              <SectionNav
+                answers={answers}
+                grade={grade}
+                submitted={submitted}
+                onNavigate={() => setIsMobileMenuOpen(false)}
+              />
+            </div>
+          </div>
+
+          <div className="hidden lg:flex lg:items-center lg:justify-between lg:gap-4">
+            <div className="min-w-0">
+              <Heading>Green Book Memorizer</Heading>
               <Text className="mt-1 max-w-2xl">
                 Army Values, Soldier&apos;s Creed, Military Time, Orders, Phonetic Alphabet, and Rank Structure.
               </Text>
@@ -607,7 +679,6 @@ export function StudyApp() {
         </aside>
 
         <div className="min-w-0">
-          <SectionNav answers={answers} grade={grade} submitted={submitted} mobile />
           <div className="space-y-12">
             {studySections.map((section) => (
               <StudySectionPanel
