@@ -20,7 +20,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react'
-import { useCallback, useMemo, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type KeyboardEvent } from 'react'
 
 import { Badge } from '@/components/badge'
 import { Button } from '@/components/button'
@@ -29,13 +29,14 @@ import { Heading, Subheading } from '@/components/heading'
 import { Input } from '@/components/input'
 import { Text } from '@/components/text'
 import { Textarea } from '@/components/textarea'
-import { getFieldPlaceholder } from '@/lib/cloze'
+import { getFieldPlaceholder, getPayGradePlaceholder } from '@/lib/cloze'
 import { gradeModeAnswers, type FieldGrade, type ModeGrade } from '@/lib/grading'
-import { greenBookSections, type GreenBookSectionId } from '@/lib/green-book-content'
+import { getRankPayGradeFieldId, greenBookSections, type GreenBookSectionId } from '@/lib/green-book-content'
 import {
   clearAllAnswers,
-  getModeAnswers,
-  isModeSubmitted,
+  createEmptyStudyState,
+  getAttemptAnswers,
+  isAttemptSubmitted,
   loadStudyState,
   markSubmitted,
   retakeMode,
@@ -64,13 +65,28 @@ const studySections: readonly StudySection[] = greenBookSections
 const allFields = studySections.flatMap((section) => section.fields)
 const totalFieldCount = allFields.length
 const storageSubscribers = new Set<() => void>()
+let inMemoryStudyState: StoredStudyState = createEmptyStudyState()
+let isUsingInMemoryStudyState = false
+
+function serializeStudyState(state: StoredStudyState): string {
+  return JSON.stringify(state)
+}
 
 function getStudyStateSnapshot(): string {
   if (typeof window === 'undefined') {
     return ''
   }
 
-  return window.localStorage.getItem(STUDY_STORAGE_KEY) ?? ''
+  if (isUsingInMemoryStudyState) {
+    return serializeStudyState(inMemoryStudyState)
+  }
+
+  try {
+    return window.localStorage.getItem(STUDY_STORAGE_KEY) ?? ''
+  } catch {
+    isUsingInMemoryStudyState = true
+    return serializeStudyState(inMemoryStudyState)
+  }
 }
 
 function subscribeToStudyStorage(listener: () => void): () => void {
@@ -114,18 +130,35 @@ function useStoredStudyState(): [StoredStudyState, (updater: (currentState: Stor
   const snapshot = useSyncExternalStore(subscribeToStudyStorage, getStudyStateSnapshot, () => '')
   const state = useMemo(() => loadStudyState(createSnapshotStorage(snapshot)), [snapshot])
 
-  const updateState = useCallback((updater: (currentState: StoredStudyState) => StoredStudyState) => {
-    const nextState = updater(loadStudyState())
+  useEffect(() => {
+    inMemoryStudyState = state
+  }, [state])
 
-    saveStudyState(nextState)
+  const updateState = useCallback((updater: (currentState: StoredStudyState) => StoredStudyState) => {
+    const nextState = updater(state)
+
+    inMemoryStudyState = nextState
+
+    if (!isUsingInMemoryStudyState && !saveStudyState(nextState)) {
+      isUsingInMemoryStudyState = true
+    }
+
     emitStudyStorageChange()
-  }, [])
+  }, [state])
 
   return [state, updateState]
 }
 
+function isFieldAnswered(field: StudyField, answers: AnswerMap): boolean {
+  if (field.id.startsWith('rank-')) {
+    return Boolean(answers[field.id]?.trim() || answers[getRankPayGradeFieldId(field.id)]?.trim())
+  }
+
+  return Boolean(answers[field.id]?.trim())
+}
+
 function countAnsweredFields(fields: readonly StudyField[], answers: AnswerMap): number {
-  return fields.filter((field) => answers[field.id]?.trim()).length
+  return fields.filter((field) => isFieldAnswered(field, answers)).length
 }
 
 function getSectionGrade(grade: ModeGrade, sectionId: GreenBookSectionId) {
@@ -196,6 +229,35 @@ function FieldStatus({ grade }: { grade?: FieldGrade }) {
 }
 
 function ModeControl({ mode, onModeChange }: { mode: Mode; onModeChange: (mode: Mode) => void }) {
+  const radioRefs = useRef<Record<Mode, HTMLButtonElement | null>>({ easy: null, hard: null })
+
+  function selectMode(nextMode: Mode) {
+    onModeChange(nextMode)
+    window.requestAnimationFrame(() => radioRefs.current[nextMode]?.focus())
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, studyMode: Mode) {
+    const currentIndex = STUDY_MODES.indexOf(studyMode)
+    const lastIndex = STUDY_MODES.length - 1
+    const nextMode =
+      event.key === 'ArrowRight' || event.key === 'ArrowDown'
+        ? STUDY_MODES[currentIndex === lastIndex ? 0 : currentIndex + 1]
+        : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+          ? STUDY_MODES[currentIndex === 0 ? lastIndex : currentIndex - 1]
+          : event.key === 'Home'
+            ? STUDY_MODES[0]
+            : event.key === 'End'
+              ? STUDY_MODES[lastIndex]
+              : undefined
+
+    if (!nextMode) {
+      return
+    }
+
+    event.preventDefault()
+    selectMode(nextMode)
+  }
+
   return (
     <div
       role="radiogroup"
@@ -211,7 +273,12 @@ function ModeControl({ mode, onModeChange }: { mode: Mode; onModeChange: (mode: 
             type="button"
             role="radio"
             aria-checked={isSelected}
+            ref={(node) => {
+              radioRefs.current[studyMode] = node
+            }}
+            tabIndex={isSelected ? 0 : -1}
             onClick={() => onModeChange(studyMode)}
+            onKeyDown={(event) => handleKeyDown(event, studyMode)}
             className={clsx(
               'rounded-md px-3 py-1.5 text-sm/6 font-semibold transition',
               isSelected ? 'bg-green-800 text-white shadow-sm' : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950',
@@ -318,13 +385,13 @@ function RankTile({ field, submitted }: { field: StudyField; submitted: boolean 
   )
 }
 
-function Correction({ grade }: { grade?: FieldGrade }) {
+function Correction({ id, grade }: { id: string; grade?: FieldGrade }) {
   if (!grade || grade.isCorrect) {
     return null
   }
 
   return (
-    <p className="mt-3 flex gap-2 text-sm/6 font-medium text-red-700">
+    <p id={id} className="mt-3 flex gap-2 text-sm/6 font-medium text-red-700">
       <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
       <span>
         Correct answer: <span className="font-semibold">{grade.correction}</span>
@@ -337,6 +404,7 @@ function StudyFieldCard({
   section,
   field,
   answer,
+  payGradeAnswer,
   grade,
   mode,
   submitted,
@@ -345,17 +413,27 @@ function StudyFieldCard({
   section: StudySection
   field: StudyField
   answer: string
+  payGradeAnswer?: string
   grade?: FieldGrade
   mode: Mode
   submitted: boolean
   onAnswerChange: (fieldId: string, value: string) => void
 }) {
   const fieldId = `field-${field.id}`
+  const correctionId = `${fieldId}-correction`
+  const describedBy = grade && !grade.isCorrect ? correctionId : undefined
   const isWrong = Boolean(grade && !grade.isCorrect)
   const isCorrect = Boolean(grade?.isCorrect)
   const placeholder = getFieldPlaceholder(field.answer, mode)
 
   if (section.id === 'rank-structure') {
+    const payGradeFieldId = getRankPayGradeFieldId(field.id)
+    const payGradeInputId = `field-${payGradeFieldId}`
+    const isRankNameWrong = Boolean(grade && !grade.rankNameIsCorrect)
+    const isRankNameCorrect = Boolean(grade?.rankNameIsCorrect)
+    const isPayGradeWrong = Boolean(grade && !grade.payGradeIsCorrect)
+    const payGradePlaceholder = getPayGradePlaceholder(field.payGrade, mode)
+
     return (
       <div
         className={clsx(
@@ -380,12 +458,35 @@ function StudyFieldCard({
               value={answer}
               placeholder={placeholder}
               readOnly={submitted}
-              invalid={isWrong}
+              invalid={isRankNameWrong}
+              aria-describedby={describedBy}
               onChange={(event) => onAnswerChange(field.id, event.target.value)}
               className="mt-3"
               autoComplete="off"
             />
-            <Correction grade={grade} />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <label htmlFor={payGradeInputId} className="text-sm/6 font-semibold text-zinc-700">
+                Pay Grade:
+              </label>
+              <Input
+                id={payGradeInputId}
+                type="text"
+                value={payGradeAnswer ?? ''}
+                placeholder={payGradePlaceholder}
+                readOnly={submitted}
+                invalid={isPayGradeWrong}
+                aria-describedby={describedBy}
+                onChange={(event) => onAnswerChange(payGradeFieldId, event.target.value)}
+                className="w-28"
+                autoComplete="off"
+              />
+              {isRankNameCorrect && grade && !grade.isCorrect ? (
+                <Badge color="green" className="shrink-0">
+                  Rank correct
+                </Badge>
+              ) : null}
+            </div>
+            <Correction id={correctionId} grade={grade} />
           </div>
         </div>
       </div>
@@ -416,6 +517,7 @@ function StudyFieldCard({
           placeholder={placeholder}
           readOnly={submitted}
           invalid={isWrong}
+          aria-describedby={describedBy}
           onChange={(event) => onAnswerChange(field.id, event.target.value)}
           className="mt-3"
           rows={section.id === 'general-orders' ? 3 : 2}
@@ -429,13 +531,14 @@ function StudyFieldCard({
           placeholder={placeholder}
           readOnly={submitted}
           invalid={isWrong}
+          aria-describedby={describedBy}
           onChange={(event) => onAnswerChange(field.id, event.target.value)}
           className="mt-3"
           autoComplete="off"
         />
       )}
 
-      <Correction grade={grade} />
+      <Correction id={correctionId} grade={grade} />
     </div>
   )
 }
@@ -489,6 +592,7 @@ function StudySectionPanel({
             section={section}
             field={field}
             answer={answers[field.id] ?? ''}
+            payGradeAnswer={answers[getRankPayGradeFieldId(field.id)] ?? ''}
             grade={submitted ? grade.fieldsById[field.id] : undefined}
             mode={mode}
             submitted={submitted}
@@ -505,10 +609,10 @@ export function StudyApp() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   const mode = state.mode
-  const answers = getModeAnswers(state, mode)
-  const submitted = isModeSubmitted(state, mode)
+  const answers = getAttemptAnswers(state)
+  const submitted = isAttemptSubmitted(state)
   const grade = useMemo(
-    () => gradeModeAnswers(studySections, { easy: answers, hard: answers }, mode),
+    () => gradeModeAnswers(studySections, answers, mode),
     [answers, mode],
   )
   const answeredCount = useMemo(() => countAnsweredFields(allFields, answers), [answers])
@@ -522,7 +626,7 @@ export function StudyApp() {
 
   function handleAnswerChange(fieldId: string, value: string) {
     setState((currentState) => {
-      if (isModeSubmitted(currentState, currentState.mode)) {
+      if (isAttemptSubmitted(currentState)) {
         return currentState
       }
 

@@ -6,6 +6,7 @@ import {
   loadStudyState,
   markSubmitted,
   retakeMode,
+  saveStudyState,
   setAnswer,
 } from './study-state'
 import { STUDY_STORAGE_KEY, type StoredStudyState } from './study-types'
@@ -38,78 +39,104 @@ class FakeStorage implements Storage {
   }
 }
 
+class ThrowingStorage implements Storage {
+  get length(): number {
+    throw new Error('Storage is blocked')
+  }
+
+  clear(): void {
+    throw new Error('Storage is blocked')
+  }
+
+  getItem(): string | null {
+    throw new Error('Storage is blocked')
+  }
+
+  key(): string | null {
+    throw new Error('Storage is blocked')
+  }
+
+  removeItem(): void {
+    throw new Error('Storage is blocked')
+  }
+
+  setItem(): void {
+    throw new Error('Storage is blocked')
+  }
+}
+
 function populatedState(): StoredStudyState {
   return {
     mode: 'hard',
-    answersByMode: {
-      easy: { alpha: 'easy answer' },
-      hard: { alpha: 'hard answer', bravo: 'second hard answer' },
-    },
-    submittedByMode: {
-      easy: true,
-      hard: true,
-    },
+    answers: { alpha: 'shared answer', bravo: 'second answer' },
+    isSubmitted: true,
   }
 }
 
 describe('study state helpers', () => {
-  it('creates an empty study state', () => {
+  it('creates an empty shared-attempt study state', () => {
     expect(createEmptyStudyState()).toEqual({
       mode: 'easy',
-      answersByMode: {
-        easy: {},
-        hard: {},
-      },
-      submittedByMode: {
-        easy: false,
-        hard: false,
-      },
+      answers: {},
+      isSubmitted: false,
     })
   })
 
-  it('shares answers between easy and hard modes when setting answers', () => {
+  it('shares one answer map between easy and hard study modes', () => {
     let state = createEmptyStudyState()
 
     state = setAnswer(state, 'easy', 'rank-pfc', 'PFC')
     state = setAnswer(state, 'hard', 'rank-pfc', 'Private First Class')
 
     expect(state.mode).toBe('hard')
-    expect(state.answersByMode.easy).toEqual({ 'rank-pfc': 'Private First Class' })
-    expect(state.answersByMode.hard).toEqual({ 'rank-pfc': 'Private First Class' })
+    expect(state.answers).toEqual({ 'rank-pfc': 'Private First Class' })
   })
 
-  it('marks both modes as submitted', () => {
+  it('marks the shared attempt as submitted', () => {
     const state = markSubmitted(createEmptyStudyState(), 'hard')
 
-    expect(state.submittedByMode).toEqual({
-      easy: true,
-      hard: true,
+    expect(state).toMatchObject({
+      mode: 'hard',
+      isSubmitted: true,
     })
   })
 
-  it('clears all answers and submitted state for retakes while preserving the selected mode', () => {
+  it('clears answers and submitted state for retakes while preserving the selected study mode', () => {
     const state = retakeMode(populatedState(), 'easy')
 
-    expect(state.mode).toBe('easy')
-    expect(state.answersByMode.easy).toEqual({})
-    expect(state.answersByMode.hard).toEqual({})
-    expect(state.submittedByMode).toEqual({
-      easy: false,
-      hard: false,
+    expect(state).toEqual({
+      mode: 'easy',
+      answers: {},
+      isSubmitted: false,
     })
   })
 
-  it('clears all answers and submissions while preserving the selected mode', () => {
+  it('clears all answers and submission state while preserving the selected study mode', () => {
     const state = clearAllAnswers(populatedState())
 
-    expect(state.mode).toBe('hard')
-    expect(state.answersByMode).toEqual({
-      easy: {},
-      hard: {},
+    expect(state).toEqual({
+      mode: 'hard',
+      answers: {},
+      isSubmitted: false,
     })
-    expect(state.submittedByMode).toEqual({
-      easy: false,
-      hard: false,
+  })
+
+  it('loads the shared-attempt state from storage', () => {
+    const storage = new FakeStorage()
+
+    storage.setItem(
+      STUDY_STORAGE_KEY,
+      JSON.stringify({
+        mode: 'hard',
+        answers: { alpha: 'answer' },
+        isSubmitted: true,
+      }),
+    )
+
+    expect(loadStudyState(storage)).toEqual({
+      mode: 'hard',
+      answers: { alpha: 'answer' },
+      isSubmitted: true,
     })
   })
 
@@ -133,14 +160,8 @@ describe('study state helpers', () => {
 
     expect(loadStudyState(storage)).toEqual({
       mode: 'hard',
-      answersByMode: {
-        easy: { alpha: 'hard answer', charlie: 'easy only', bravo: 'hard only' },
-        hard: { alpha: 'hard answer', charlie: 'easy only', bravo: 'hard only' },
-      },
-      submittedByMode: {
-        easy: true,
-        hard: true,
-      },
+      answers: { alpha: 'hard answer', charlie: 'easy only', bravo: 'hard only' },
+      isSubmitted: true,
     })
   })
 
@@ -150,5 +171,18 @@ describe('study state helpers', () => {
     storage.setItem(STUDY_STORAGE_KEY, '{not-json')
 
     expect(loadStudyState(storage)).toEqual(createEmptyStudyState())
+  })
+
+  it('falls back to an empty state when storage reads are blocked', () => {
+    expect(loadStudyState(new ThrowingStorage())).toEqual(createEmptyStudyState())
+  })
+
+  it('reports whether saves reached storage', () => {
+    const storage = new FakeStorage()
+    const state = populatedState()
+
+    expect(saveStudyState(state, storage)).toBe(true)
+    expect(loadStudyState(storage)).toEqual(state)
+    expect(saveStudyState(state, new ThrowingStorage())).toBe(false)
   })
 })

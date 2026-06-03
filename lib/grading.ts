@@ -1,3 +1,4 @@
+import { getRankPayGradeFieldId } from './green-book-content'
 import type { AnswerMap, Mode, StudyField, StudySection } from './study-types'
 
 export type FieldGrade = {
@@ -5,6 +6,10 @@ export type FieldGrade = {
   answer: string
   isCorrect: boolean
   correction: string
+  rankNameIsCorrect?: boolean
+  payGradeAnswer?: string
+  payGradeIsCorrect?: boolean
+  payGradeCorrection?: string
 }
 
 export type SectionGrade = {
@@ -49,7 +54,7 @@ function normalizeWithoutWhitespaceOrPunctuation(answer: string): string {
 }
 
 function normalizeWithoutWhitespace(answer: string): string {
-  return normalizeCase(answer).replace(/\s+/gu, '')
+  return normalizeCase(answer).trim().replace(/\s+/gu, '')
 }
 
 function hasWhitespace(answer: string): boolean {
@@ -58,6 +63,10 @@ function hasWhitespace(answer: string): boolean {
 
 function hasPunctuation(answer: string): boolean {
   return /[^\p{L}\p{N}]/u.test(answer)
+}
+
+function hasNonWhitespacePunctuation(answer: string): boolean {
+  return /[^\p{L}\p{N}\s]/u.test(answer)
 }
 
 function isArmyValuesField(field: StudyField): boolean {
@@ -93,20 +102,22 @@ function getAcceptedAnswers(field: StudyField): readonly string[] {
 }
 
 function gradeArmyValue(field: StudyField, answer: string): boolean {
-  const normalizedAnswer = normalizeCase(answer)
+  const normalizedAnswer = normalizeCase(answer).trim()
 
-  if (!normalizedAnswer || hasWhitespace(normalizedAnswer)) {
+  if (!normalizedAnswer) {
     return false
   }
 
   const withoutOptionalPeriod = normalizedAnswer.endsWith('.') ? normalizedAnswer.slice(0, -1) : normalizedAnswer
 
-  if (!withoutOptionalPeriod || hasPunctuation(withoutOptionalPeriod)) {
+  if (!withoutOptionalPeriod.trim() || hasNonWhitespacePunctuation(withoutOptionalPeriod)) {
     return false
   }
 
+  const withoutWhitespace = withoutOptionalPeriod.replace(/\s+/gu, '')
+
   return getAcceptedAnswers(field).some((acceptedAnswer) => {
-    return normalizeWithoutWhitespace(acceptedAnswer) === withoutOptionalPeriod
+    return normalizeWithoutWhitespace(acceptedAnswer) === withoutWhitespace
   })
 }
 
@@ -129,19 +140,23 @@ function gradeMilitaryTime(field: StudyField, answer: string): boolean {
 }
 
 function gradePhoneticAlphabet(field: StudyField, answer: string): boolean {
-  const normalizedAnswer = normalizeCase(answer)
+  const normalizedAnswer = normalizeCase(answer).trim()
 
-  if (!normalizedAnswer || hasWhitespace(normalizedAnswer) || hasPunctuation(normalizedAnswer)) {
+  if (!normalizedAnswer || hasWhitespace(normalizedAnswer)) {
+    return false
+  }
+
+  if (field.id === 'phonetic-x') {
+    return normalizedAnswer === 'xray' || normalizedAnswer === 'x-ray'
+  }
+
+  if (hasPunctuation(normalizedAnswer)) {
     return false
   }
 
   return getAcceptedAnswers(field).some((acceptedAnswer) => {
     return normalizeWithoutWhitespaceOrPunctuation(acceptedAnswer) === normalizedAnswer
   })
-}
-
-function containsPayGrade(answer: string): boolean {
-  return /\b[A-Z]-\d+\b/i.test(answer)
 }
 
 function isRankAbbreviation(answer: string): boolean {
@@ -157,7 +172,7 @@ function addRankPart(parts: Set<string>, value: string): void {
 }
 
 function getRankAcceptedAnswers(field: StudyField): Set<string> {
-  const acceptedAnswers = getAcceptedAnswers(field).filter((acceptedAnswer) => !containsPayGrade(acceptedAnswer))
+  const acceptedAnswers = getAcceptedAnswers(field)
   const accepted = new Set<string>()
   const fullRanks = new Set<string>()
   const abbreviations = new Set<string>()
@@ -228,6 +243,30 @@ function gradeRank(field: StudyField, answer: string): boolean {
   return getRankAcceptedAnswers(field).has(normalizedAnswer)
 }
 
+function normalizePayGrade(answer: string): string | undefined {
+  const normalizedAnswer = normalizeCase(answer).trim()
+
+  if (hasWhitespace(normalizedAnswer)) {
+    return undefined
+  }
+
+  const match = normalizedAnswer.match(/^([ewo])-?(\d{1,2})$/i)
+
+  if (!match) {
+    return undefined
+  }
+
+  return `${match[1].toLocaleUpperCase('en-US')}${match[2]}`
+}
+
+function gradePayGrade(field: StudyField, answer: string): boolean {
+  if (!field.payGrade) {
+    return false
+  }
+
+  return normalizePayGrade(answer) === normalizePayGrade(field.payGrade)
+}
+
 function gradeText(field: StudyField, answer: string): boolean {
   const normalizedAnswer = normalizeAnswer(answer)
 
@@ -238,7 +277,24 @@ function gradeText(field: StudyField, answer: string): boolean {
   return getAcceptedAnswers(field).some((acceptedAnswer) => normalizeAnswer(acceptedAnswer) === normalizedAnswer)
 }
 
-export function gradeField(field: StudyField, answer: string): FieldGrade {
+export function gradeField(field: StudyField, answer: string, payGradeAnswer = ''): FieldGrade {
+  if (isRankField(field)) {
+    const rankNameIsCorrect = gradeRank(field, answer)
+    const payGradeIsCorrect = gradePayGrade(field, payGradeAnswer)
+    const payGradeCorrection = field.payGrade ?? ''
+
+    return {
+      fieldId: field.id,
+      answer,
+      isCorrect: rankNameIsCorrect && payGradeIsCorrect,
+      correction: `${field.answer}, Pay Grade: ${payGradeCorrection}`,
+      rankNameIsCorrect,
+      payGradeAnswer,
+      payGradeIsCorrect,
+      payGradeCorrection,
+    }
+  }
+
   const isCorrect = isArmyValuesField(field)
     ? gradeArmyValue(field, answer)
     : isSoldiersCreedField(field) || isGeneralOrdersField(field) || isSpecialOrdersField(field)
@@ -247,9 +303,7 @@ export function gradeField(field: StudyField, answer: string): FieldGrade {
         ? gradeMilitaryTime(field, answer)
         : isPhoneticAlphabetField(field)
           ? gradePhoneticAlphabet(field, answer)
-          : isRankField(field)
-            ? gradeRank(field, answer)
-            : gradeText(field, answer)
+          : gradeText(field, answer)
 
   return {
     fieldId: field.id,
@@ -261,7 +315,9 @@ export function gradeField(field: StudyField, answer: string): FieldGrade {
 
 export function gradeSections(sections: readonly StudySection[], answers: AnswerMap): SectionGrade[] {
   return sections.map((section) => {
-    const fields = section.fields.map((field) => gradeField(field, answers[field.id] ?? ''))
+    const fields = section.fields.map((field) => {
+      return gradeField(field, answers[field.id] ?? '', answers[getRankPayGradeFieldId(field.id)] ?? '')
+    })
     const correctCount = fields.filter((field) => field.isCorrect).length
 
     return {
@@ -276,10 +332,10 @@ export function gradeSections(sections: readonly StudySection[], answers: Answer
 
 export function gradeModeAnswers(
   sections: readonly StudySection[],
-  answersByMode: Record<Mode, AnswerMap>,
+  answers: AnswerMap,
   mode: Mode,
 ): ModeGrade {
-  const sectionsWithGrades = gradeSections(sections, answersByMode[mode])
+  const sectionsWithGrades = gradeSections(sections, answers)
   const fieldsById = Object.fromEntries(
     sectionsWithGrades.flatMap((section) => section.fields.map((field) => [field.fieldId, field])),
   )

@@ -69,12 +69,26 @@ describe('rank assets', () => {
       throw new Error('Missing rank structure section')
     }
 
-    const imageSources = rankSection.fields
-      .map((field) => field.imageSrc)
-      .filter((imageSrc): imageSrc is string => Boolean(imageSrc))
+    const imageSources = rankSection.fields.flatMap((field) => (field.imageSrc ? [field.imageSrc] : []))
 
     for (const imageSrc of imageSources) {
       expect(existsSync(new URL(`../public${imageSrc}`, import.meta.url)), imageSrc).toBe(true)
+    }
+  })
+
+  it('has pay grades and visual descriptions for every rank field', () => {
+    const rankSection = greenBookSections.find((section) => section.id === 'rank-structure')
+
+    if (!rankSection) {
+      throw new Error('Missing rank structure section')
+    }
+
+    expect(rankSection.fields).toHaveLength(28)
+
+    for (const field of rankSection.fields) {
+      expect(field.payGrade, field.id).toMatch(/^[EWO]-\d{1,2}$/)
+      expect(field.prompt, field.id).toBeTruthy()
+      expect(field.prompt, field.id).not.toBe('Identify this rank.')
     }
   })
 })

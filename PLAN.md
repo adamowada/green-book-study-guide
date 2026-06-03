@@ -2,7 +2,7 @@
 
 ## Summary
 
-Build a single-page Next.js memorization tool using the existing Tailwind/Headless UI components and browser `localStorage` only. The app will support `easy` and `hard` modes, fixed Green Book sections, client-side grading, red corrections after submit, `Clear all`, and post-submit `Retake`.
+Build a single-page Next.js memorization tool using the existing Tailwind/Headless UI components and client-side persistence. The app supports `easy` and `hard` study modes over one shared attempt, fixed Green Book sections, client-side grading, red corrections after submit, `Clear all`, and post-submit `Retake`.
 
 Source material comes from `TP600-4 The Soldiers Green Book_Aug 2025.pdf`. Relevant PDF pages found: Army Values 35-38, Soldier's Creed 38, Military Time 58-59, General/Special Orders 61-62, Phonetic Alphabet 64, Rank Structure 94-99. Rank pages contain 28 extractable insignia images.
 
@@ -42,29 +42,31 @@ After each implementation stage, add, commit, and push the completed work to `ma
   - General Orders: one field per order.
   - Special Orders: one field for the definition.
   - Phonetic Alphabet: prompt with letter, user fills code word.
-  - Rank Structure: show rank image only, user types the rank.
+  - Rank Structure: show rank image plus a visual description; user types the rank name/abbreviation and pay grade.
 
 ### 3. Define Client State And Grading
 
-- Add core types for mode, study sections, study items, study fields, and stored study state.
-- Store drafts in `localStorage` under a versioned key like `green-book-memorizer:v1`.
-- Keep answer maps separate for `easy` and `hard` so switching modes does not leak answers.
-- `Clear all`: clears both modes' answers and submission states, but keeps the selected mode.
-- `Submit`: grades all fields in the active mode, marks inputs read-only, shows wrong corrections in red, and displays section/global scores.
-- `Retake`: available only after submit; clears active-mode answers and grading state.
+- Add core types for study mode, study sections, study items, study fields, and stored shared-attempt state.
+- Store drafts in `localStorage` under `green-book-memorizer:v1` when browser storage is available, and fall back silently to in-memory state for the current open page when it is blocked.
+- Keep a single shared answer map and submission state. `easy` and `hard` are study modes for the same attempt, not separate attempts.
+- `Clear all`: clears the shared attempt answers and submission state, but keeps the selected study mode.
+- `Submit`: grades the shared attempt, marks inputs read-only, shows wrong corrections in red, and displays section/global scores.
+- `Retake`: available only after submit; clears the shared attempt answers and grading state.
 - Normalize grading case-insensitively and punctuation-insensitively:
-  - Trim and collapse whitespace.
+  - Trim and collapse whitespace for long-form answers.
   - Ignore case.
   - Normalize curly quotes/dashes.
-  - Ignore punctuation for rank answers.
+  - Army Values ignore whitespace and allow only one optional trailing period.
+  - Phonetic Alphabet trims leading/trailing whitespace and ignores case. `X-RAY` accepts `xray` or `x-ray`; other code words reject punctuation, and all code words reject internal whitespace.
+  - Ignore punctuation for rank-name answers.
   - Military time requires exact four digits.
-  - Rank answers accept canonical title and common abbreviation aliases, with correction text showing the canonical title.
+  - Rank answers accept canonical title and common abbreviation aliases. Rank cards also require the correct pay grade, accepting forms like `E4` and `E-4` case-insensitively with no whitespace.
 
 ### 4. Build The Homepage UI
 
 - Implement `app/page.tsx` as the only route and render a client-side `StudyApp`.
 - Layout:
-  - Compact header with title, mode segmented control, progress/score, and action buttons.
+  - Compact header with title, study-mode segmented control, progress/score, and action buttons.
   - Desktop: sticky left section navigation plus main exercise area.
   - Mobile: top section selector or horizontal tabs, single-column exercise flow.
 - Use included components for controls: `Button`, `Input`, `Textarea`, `Badge`, `Table`, `Heading`, `Text`, `Divider`, `Radio`/segmented mode controls.
@@ -75,10 +77,11 @@ After each implementation stage, add, commit, and push the completed work to `ma
 
 - Add unit tests for:
   - Normalization and punctuation-insensitive rank grading.
+  - Rank pay-grade grading.
   - Military time exact matching.
   - Empty answers grading as incorrect.
-  - `Clear all`, `Submit`, and `Retake` state transitions.
-  - Separate easy/hard localStorage answer maps.
-- Run `npm run lint` and `npm run build`.
+  - `Clear all`, `Submit`, and `Retake` shared-attempt state transitions.
+  - Shared Easy/Hard study-mode state and storage fallback.
+- Run `npm run check`.
 - Verify responsive UI manually or with browser screenshots at mobile, tablet, and desktop widths.
 - Confirm all rank images render, have useful alt text, and match their expected canonical rank.

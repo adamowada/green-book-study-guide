@@ -16,3 +16,10 @@ export function getFieldPlaceholder(answer: string, mode: Mode): string {
   return 'Type the full answer'
 }
 
+export function getPayGradePlaceholder(payGrade: string | undefined, mode: Mode): string {
+  if (mode !== 'easy' || !payGrade) {
+    return 'Pay grade'
+  }
+
+  return `${payGrade[0]?.toLocaleUpperCase('en-US') ?? ''}-_`
+}

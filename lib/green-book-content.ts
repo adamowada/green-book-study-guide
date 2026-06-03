@@ -19,6 +19,10 @@ export type GreenBookField = {
   remarks?: string
 }
 
+export function getRankPayGradeFieldId(rankFieldId: string): string {
+  return `${rankFieldId}:pay-grade`
+}
+
 export type GreenBookSection = {
   id: GreenBookSectionId
   title: string
@@ -253,26 +257,28 @@ export const greenBookSections = [
     id: 'rank-structure',
     title: 'Rank Structure',
     fields: [
+      // Rank identities/pay grades follow the official DoD/Army rank charts; visual prompts use common Army
+      // insignia terms and are derived from the official insignia artwork when prose descriptions are unavailable.
       {
         id: 'rank-pvt',
-        prompt: 'Identify this rank.',
+        prompt: 'No rank insignia.',
         answer: 'Private (PVT)',
-        aliases: ['Private (PVT)', 'Private', 'PVT', 'Private PVT', 'Private E-1'],
+        aliases: ['Private (PVT)', 'Private', 'PVT', 'Private PVT'],
         imageSrc: null,
         visualLabel: 'No Chevron',
         payGrade: 'E-1',
       },
       {
         id: 'rank-pv2',
-        prompt: 'Identify this rank.',
+        prompt: 'One chevron.',
         answer: 'Private (PV2)',
-        aliases: ['Private (PV2)', 'Private', 'PV2', 'Private PV2', 'Private E-2'],
+        aliases: ['Private (PV2)', 'Private', 'PV2', 'Private PV2'],
         imageSrc: '/ranks/rank-pv2.png',
         payGrade: 'E-2',
       },
       {
         id: 'rank-pfc',
-        prompt: 'Identify this rank.',
+        prompt: 'One chevron over one rocker.',
         answer: 'Private First Class (PFC)',
         aliases: ['Private First Class (PFC)', 'Private First Class', 'PFC', 'Private First Class PFC'],
         imageSrc: '/ranks/rank-pfc.png',
@@ -280,7 +286,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-spc',
-        prompt: 'Identify this rank.',
+        prompt: 'An eagle centered on a shield.',
         answer: 'Specialist (SPC)',
         aliases: ['Specialist (SPC)', 'Specialist', 'SPC', 'Specialist SPC'],
         imageSrc: '/ranks/rank-spc.png',
@@ -288,7 +294,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-cpl',
-        prompt: 'Identify this rank.',
+        prompt: 'Two chevrons.',
         answer: 'Corporal (CPL)',
         aliases: ['Corporal (CPL)', 'Corporal', 'CPL', 'Corporal CPL'],
         imageSrc: '/ranks/rank-cpl.png',
@@ -297,7 +303,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-sgt',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons.',
         answer: 'Sergeant (SGT)',
         aliases: ['Sergeant (SGT)', 'Sergeant', 'SGT', 'Sergeant SGT'],
         imageSrc: '/ranks/rank-sgt.png',
@@ -306,7 +312,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-ssg',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons over one rocker.',
         answer: 'Staff Sergeant (SSG)',
         aliases: ['Staff Sergeant (SSG)', 'Staff Sergeant', 'SSG', 'Staff Sergeant SSG'],
         imageSrc: '/ranks/rank-ssg.png',
@@ -315,7 +321,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-sfc',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons over two rockers.',
         answer: 'Sergeant First Class (SFC)',
         aliases: ['Sergeant First Class (SFC)', 'Sergeant First Class', 'SFC', 'Sergeant First Class SFC'],
         imageSrc: '/ranks/rank-sfc.png',
@@ -324,7 +330,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-msg',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons over three rockers.',
         answer: 'Master Sergeant (MSG)',
         aliases: ['Master Sergeant (MSG)', 'Master Sergeant', 'MSG', 'Master Sergeant MSG'],
         imageSrc: '/ranks/rank-msg.png',
@@ -333,7 +339,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-1sg',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons over three rockers with a diamond in the center.',
         answer: 'First Sergeant (1SG)',
         aliases: ['First Sergeant (1SG)', 'First Sergeant', '1SG', 'First Sergeant 1SG'],
         imageSrc: '/ranks/rank-1sg.png',
@@ -342,7 +348,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-sgm',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons over three rockers with a star in the center.',
         answer: 'Sergeant Major (SGM)',
         aliases: ['Sergeant Major (SGM)', 'Sergeant Major', 'SGM', 'Sergeant Major SGM'],
         imageSrc: '/ranks/rank-sgm.png',
@@ -351,7 +357,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-csm',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons over three rockers with a star in the center inside a wreath.',
         answer: 'Command Sergeant Major (CSM)',
         aliases: ['Command Sergeant Major (CSM)', 'Command Sergeant Major', 'CSM', 'Command Sergeant Major CSM'],
         imageSrc: '/ranks/rank-csm.png',
@@ -360,7 +366,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-sma',
-        prompt: 'Identify this rank.',
+        prompt: 'Three chevrons over three rockers with the Army eagle between two stars in the center.',
         answer: 'Sergeant Major of the Army (SMA)',
         aliases: [
           'Sergeant Major of the Army (SMA)',
@@ -374,7 +380,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-wo1',
-        prompt: 'Identify this rank.',
+        prompt: 'One black square centered on a silver bar.',
         answer: 'Warrant Officer 1 (WO1)',
         aliases: ['Warrant Officer 1 (WO1)', 'Warrant Officer 1', 'Warrant Officer One', 'WO1', 'Warrant Officer 1 WO1'],
         imageSrc: '/ranks/rank-wo1.png',
@@ -383,7 +389,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-cw2',
-        prompt: 'Identify this rank.',
+        prompt: 'Two black squares centered on a silver bar.',
         answer: 'Chief Warrant Officer 2 (CW2)',
         aliases: [
           'Chief Warrant Officer 2 (CW2)',
@@ -398,7 +404,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-cw3',
-        prompt: 'Identify this rank.',
+        prompt: 'Three black squares centered on a silver bar.',
         answer: 'Chief Warrant Officer 3 (CW3)',
         aliases: [
           'Chief Warrant Officer 3 (CW3)',
@@ -413,7 +419,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-cw4',
-        prompt: 'Identify this rank.',
+        prompt: 'Four black squares centered on a silver bar.',
         answer: 'Chief Warrant Officer 4 (CW4)',
         aliases: [
           'Chief Warrant Officer 4 (CW4)',
@@ -428,7 +434,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-cw5',
-        prompt: 'Identify this rank.',
+        prompt: 'One long black vertical stripe centered on a silver bar.',
         answer: 'Chief Warrant Officer 5 (CW5)',
         aliases: [
           'Chief Warrant Officer 5 (CW5)',
@@ -443,7 +449,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-2lt',
-        prompt: 'Identify this rank.',
+        prompt: 'One gold bar.',
         answer: '2nd Lieutenant (2LT)',
         aliases: ['2nd Lieutenant (2LT)', '2nd Lieutenant', 'Second Lieutenant', '2LT', '2nd Lieutenant 2LT'],
         imageSrc: '/ranks/rank-2lt.png',
@@ -452,7 +458,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-1lt',
-        prompt: 'Identify this rank.',
+        prompt: 'One silver bar.',
         answer: '1st Lieutenant (1LT)',
         aliases: ['1st Lieutenant (1LT)', '1st Lieutenant', 'First Lieutenant', '1LT', '1st Lieutenant 1LT'],
         imageSrc: '/ranks/rank-1lt.png',
@@ -461,7 +467,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-cpt',
-        prompt: 'Identify this rank.',
+        prompt: 'Two connected silver bars.',
         answer: 'Captain (CPT)',
         aliases: ['Captain (CPT)', 'Captain', 'CPT', 'Captain CPT'],
         imageSrc: '/ranks/rank-cpt.png',
@@ -470,7 +476,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-maj',
-        prompt: 'Identify this rank.',
+        prompt: 'One gold oak leaf.',
         answer: 'Major (MAJ)',
         aliases: ['Major (MAJ)', 'Major', 'MAJ', 'Major MAJ'],
         imageSrc: '/ranks/rank-maj.png',
@@ -479,7 +485,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-ltc',
-        prompt: 'Identify this rank.',
+        prompt: 'One silver oak leaf.',
         answer: 'Lieutenant Colonel (LTC)',
         aliases: ['Lieutenant Colonel (LTC)', 'Lieutenant Colonel', 'LTC', 'Lieutenant Colonel LTC'],
         imageSrc: '/ranks/rank-ltc.png',
@@ -488,7 +494,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-col',
-        prompt: 'Identify this rank.',
+        prompt: 'One silver eagle.',
         answer: 'Colonel (COL)',
         aliases: ['Colonel (COL)', 'Colonel', 'COL', 'Colonel COL'],
         imageSrc: '/ranks/rank-col.png',
@@ -497,7 +503,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-bg',
-        prompt: 'Identify this rank.',
+        prompt: 'One silver star.',
         answer: 'Brigadier General (BG)',
         aliases: ['Brigadier General (BG)', 'Brigadier General', 'BG', 'Brigadier General BG'],
         imageSrc: '/ranks/rank-bg.png',
@@ -505,7 +511,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-mg',
-        prompt: 'Identify this rank.',
+        prompt: 'Two silver stars.',
         answer: 'Major General (MG)',
         aliases: ['Major General (MG)', 'Major General', 'MG', 'Major General MG'],
         imageSrc: '/ranks/rank-mg.png',
@@ -513,7 +519,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-ltg',
-        prompt: 'Identify this rank.',
+        prompt: 'Three silver stars.',
         answer: 'Lieutenant General (LTG)',
         aliases: ['Lieutenant General (LTG)', 'Lieutenant General', 'LTG', 'Lieutenant General LTG'],
         imageSrc: '/ranks/rank-ltg.png',
@@ -521,7 +527,7 @@ export const greenBookSections = [
       },
       {
         id: 'rank-gen',
-        prompt: 'Identify this rank.',
+        prompt: 'Four silver stars.',
         answer: 'General (GEN)',
         aliases: ['General (GEN)', 'General', 'GEN', 'General GEN'],
         imageSrc: '/ranks/rank-gen.png',

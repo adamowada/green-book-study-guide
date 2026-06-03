@@ -6,6 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit --pretty false --incremental false",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "start": "next start",
     "lint": "eslint ."
   },

@@ -48,13 +48,19 @@ const TableRowContext = createContext<{ href?: string; target?: string; title?: 
   title: undefined,
 })
 
+type TableRowProps = (
+  | { href: string; target?: string; title: string }
+  | { href?: undefined; target?: string; title?: string }
+) &
+  React.ComponentPropsWithoutRef<'tr'>
+
 export function TableRow({
   href,
   target,
   title,
   className,
   ...props
-}: { href?: string; target?: string; title?: string } & React.ComponentPropsWithoutRef<'tr'>) {
+}: TableRowProps) {
   let { striped } = useContext(TableContext)
 
   return (
@@ -94,6 +100,7 @@ export function TableCell({ className, children, ...props }: React.ComponentProp
   let { bleed, dense, grid, striped } = useContext(TableContext)
   let { href, target, title } = useContext(TableRowContext)
   let [cellRef, setCellRef] = useState<HTMLElement | null>(null)
+  let rowLinkLabel = title ?? 'Open row'
 
   return (
     <td
@@ -113,7 +120,7 @@ export function TableCell({ className, children, ...props }: React.ComponentProp
           data-row-link
           href={href}
           target={target}
-          aria-label={title}
+          aria-label={rowLinkLabel}
           tabIndex={cellRef?.previousElementSibling === null ? 0 : -1}
           className="absolute inset-0 focus:outline-hidden"
         />

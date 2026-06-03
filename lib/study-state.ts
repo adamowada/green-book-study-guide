@@ -6,30 +6,16 @@ function isMode(value: unknown): value is Mode {
   return value === 'easy' || value === 'hard'
 }
 
-function createEmptyAnswerMaps(): StoredStudyState['answersByMode'] {
-  return {
-    easy: {},
-    hard: {},
-  }
-}
-
-function createEmptySubmittedMap(): StoredStudyState['submittedByMode'] {
-  return {
-    easy: false,
-    hard: false,
-  }
-}
-
-function getOtherMode(mode: Mode): Mode {
-  return mode === 'easy' ? 'hard' : 'easy'
-}
-
 function getBrowserStorage(): Storage | undefined {
   if (typeof window === 'undefined') {
     return undefined
   }
 
-  return window.localStorage
+  try {
+    return window.localStorage
+  } catch {
+    return undefined
+  }
 }
 
 function readAnswerMap(value: unknown): AnswerMap {
@@ -42,48 +28,65 @@ function readAnswerMap(value: unknown): AnswerMap {
   )
 }
 
+function readLegacySharedAnswers(value: unknown, mode: Mode): AnswerMap {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {}
+  }
+
+  const state = value as {
+    answersByMode?: {
+      easy?: unknown
+      hard?: unknown
+    }
+  }
+  const answersByMode = {
+    easy: readAnswerMap(state.answersByMode?.easy),
+    hard: readAnswerMap(state.answersByMode?.hard),
+  }
+  const otherMode = mode === 'easy' ? 'hard' : 'easy'
+
+  return {
+    ...answersByMode[otherMode],
+    ...answersByMode[mode],
+  }
+}
+
+function readLegacySubmitted(value: unknown): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false
+  }
+
+  const state = value as {
+    submittedByMode?: {
+      easy?: unknown
+      hard?: unknown
+    }
+  }
+
+  return Boolean(state.submittedByMode?.easy) || Boolean(state.submittedByMode?.hard)
+}
+
 function readStoredState(value: unknown): StoredStudyState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return createEmptyStudyState()
   }
 
   const state = value as Partial<StoredStudyState>
-  const emptyState = createEmptyStudyState()
-  const mode = isMode(state.mode) ? state.mode : emptyState.mode
-  const answersByMode = {
-    easy: readAnswerMap(state.answersByMode?.easy),
-    hard: readAnswerMap(state.answersByMode?.hard),
-  }
-  const submittedByMode = {
-    easy:
-      typeof state.submittedByMode?.easy === 'boolean' ? state.submittedByMode.easy : emptyState.submittedByMode.easy,
-    hard:
-      typeof state.submittedByMode?.hard === 'boolean' ? state.submittedByMode.hard : emptyState.submittedByMode.hard,
-  }
-  const sharedAnswers = {
-    ...answersByMode[getOtherMode(mode)],
-    ...answersByMode[mode],
-  }
-  const isSubmitted = submittedByMode.easy || submittedByMode.hard
+  const mode = isMode(state.mode) ? state.mode : 'easy'
+  const answers = readAnswerMap(state.answers)
 
   return {
     mode,
-    answersByMode: {
-      easy: sharedAnswers,
-      hard: { ...sharedAnswers },
-    },
-    submittedByMode: {
-      easy: isSubmitted,
-      hard: isSubmitted,
-    },
+    answers: Object.keys(answers).length > 0 ? answers : readLegacySharedAnswers(value, mode),
+    isSubmitted: typeof state.isSubmitted === 'boolean' ? state.isSubmitted : readLegacySubmitted(value),
   }
 }
 
 export function createEmptyStudyState(mode: Mode = 'easy'): StoredStudyState {
   return {
     mode,
-    answersByMode: createEmptyAnswerMaps(),
-    submittedByMode: createEmptySubmittedMap(),
+    answers: {},
+    isSubmitted: false,
   }
 }
 
@@ -105,26 +108,26 @@ export function loadStudyState(storage: Storage | undefined = getBrowserStorage(
   }
 }
 
-export function saveStudyState(state: StoredStudyState, storage: Storage | undefined = getBrowserStorage()): void {
+export function saveStudyState(state: StoredStudyState, storage: Storage | undefined = getBrowserStorage()): boolean {
   if (!storage) {
-    return
+    return false
   }
 
-  storage.setItem(STUDY_STORAGE_KEY, JSON.stringify(state))
+  try {
+    storage.setItem(STUDY_STORAGE_KEY, JSON.stringify(state))
+    return true
+  } catch {
+    return false
+  }
 }
 
 export function setAnswer(state: StoredStudyState, mode: Mode, fieldId: string, value: string): StoredStudyState {
-  const sharedAnswers = {
-    ...getModeAnswers(state, mode),
-    [fieldId]: value,
-  }
-
   return {
     ...state,
     mode,
-    answersByMode: {
-      easy: sharedAnswers,
-      hard: { ...sharedAnswers },
+    answers: {
+      ...state.answers,
+      [fieldId]: value,
     },
   }
 }
@@ -133,10 +136,7 @@ export function markSubmitted(state: StoredStudyState, mode: Mode): StoredStudyS
   return {
     ...state,
     mode,
-    submittedByMode: {
-      easy: true,
-      hard: true,
-    },
+    isSubmitted: true,
   }
 }
 
@@ -144,28 +144,27 @@ export function retakeMode(state: StoredStudyState, mode: Mode): StoredStudyStat
   return {
     ...state,
     mode,
-    answersByMode: createEmptyAnswerMaps(),
-    submittedByMode: createEmptySubmittedMap(),
+    answers: {},
+    isSubmitted: false,
   }
 }
 
 export function clearAllAnswers(state: StoredStudyState): StoredStudyState {
   return {
     ...state,
-    answersByMode: createEmptyAnswerMaps(),
-    submittedByMode: createEmptySubmittedMap(),
+    answers: {},
+    isSubmitted: false,
   }
 }
 
-export function getModeAnswers(state: StoredStudyState, mode: Mode): AnswerMap {
+export function getAttemptAnswers(state: StoredStudyState): AnswerMap {
   return {
-    ...state.answersByMode[getOtherMode(mode)],
-    ...state.answersByMode[mode],
+    ...state.answers,
   }
 }
 
-export function isModeSubmitted(state: StoredStudyState, mode: Mode): boolean {
-  return state.submittedByMode[mode] || state.submittedByMode[getOtherMode(mode)]
+export function isAttemptSubmitted(state: StoredStudyState): boolean {
+  return state.isSubmitted
 }
 
 export { MODES as STUDY_MODES }
