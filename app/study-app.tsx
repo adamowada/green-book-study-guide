@@ -465,21 +465,24 @@ function StudyFieldCard({
               autoComplete="off"
             />
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <label htmlFor={payGradeInputId} className="text-sm/6 font-semibold text-zinc-700">
-                Pay Grade:
-              </label>
-              <Input
-                id={payGradeInputId}
-                type="text"
-                value={payGradeAnswer ?? ''}
-                placeholder={payGradePlaceholder}
-                readOnly={submitted}
-                invalid={isPayGradeWrong}
-                aria-describedby={describedBy}
-                onChange={(event) => onAnswerChange(payGradeFieldId, event.target.value)}
-                className="w-28"
-                autoComplete="off"
-              />
+              <div className="flex w-full items-center gap-2">
+                <label htmlFor={payGradeInputId} className="shrink-0 text-sm/6 font-semibold text-zinc-700">
+                  Pay Grade:
+                </label>
+                <div className="min-w-0 flex-1">
+                  <Input
+                    id={payGradeInputId}
+                    type="text"
+                    value={payGradeAnswer ?? ''}
+                    placeholder={payGradePlaceholder}
+                    readOnly={submitted}
+                    invalid={isPayGradeWrong}
+                    aria-describedby={describedBy}
+                    onChange={(event) => onAnswerChange(payGradeFieldId, event.target.value)}
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
               {isRankNameCorrect && grade && !grade.isCorrect ? (
                 <Badge color="green" className="shrink-0">
                   Rank correct
