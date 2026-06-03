@@ -155,7 +155,7 @@ function isCompactSection(section: StudySection): boolean {
 
 function getFieldsLayout(section: StudySection): string {
   if (section.id === 'rank-structure') {
-    return 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3'
+    return 'grid gap-4 sm:grid-cols-2'
   }
 
   if (isCompactSection(section)) {
@@ -507,7 +507,10 @@ export function StudyApp() {
   const mode = state.mode
   const answers = getModeAnswers(state, mode)
   const submitted = isModeSubmitted(state, mode)
-  const grade = useMemo(() => gradeModeAnswers(studySections, state.answersByMode, mode), [mode, state.answersByMode])
+  const grade = useMemo(
+    () => gradeModeAnswers(studySections, { easy: answers, hard: answers }, mode),
+    [answers, mode],
+  )
   const answeredCount = useMemo(() => countAnsweredFields(allFields, answers), [answers])
   const headerValue = submitted ? grade.correctCount : answeredCount
   const headerTotal = submitted ? grade.totalCount : totalFieldCount
@@ -588,21 +591,24 @@ export function StudyApp() {
                 </div>
               </div>
 
-              <div className="grid gap-2 sm:grid-cols-3">
-                <Button color="green" onClick={handleSubmit} disabled={submitted}>
-                  <Send data-slot="icon" aria-hidden="true" />
-                  Submit
-                </Button>
+              <div className={clsx('grid gap-2', !submitted && 'sm:grid-cols-2')}>
                 {submitted ? (
                   <Button outline onClick={handleRetake}>
                     <RotateCcw data-slot="icon" aria-hidden="true" />
                     Retake
                   </Button>
-                ) : null}
-                <Button outline onClick={handleClearAll}>
-                  <Trash2 data-slot="icon" aria-hidden="true" />
-                  Clear all
-                </Button>
+                ) : (
+                  <>
+                    <Button color="green" onClick={handleSubmit}>
+                      <Send data-slot="icon" aria-hidden="true" />
+                      Submit
+                    </Button>
+                    <Button outline onClick={handleClearAll}>
+                      <Trash2 data-slot="icon" aria-hidden="true" />
+                      Clear all
+                    </Button>
+                  </>
+                )}
               </div>
 
               <SectionNav
@@ -639,20 +645,23 @@ export function StudyApp() {
               </div>
 
               <div className="flex flex-wrap gap-2 sm:justify-end">
-                <Button color="green" onClick={handleSubmit} disabled={submitted}>
-                  <Send data-slot="icon" aria-hidden="true" />
-                  Submit
-                </Button>
                 {submitted ? (
                   <Button outline onClick={handleRetake}>
                     <RotateCcw data-slot="icon" aria-hidden="true" />
                     Retake
                   </Button>
-                ) : null}
-                <Button outline onClick={handleClearAll}>
-                  <Trash2 data-slot="icon" aria-hidden="true" />
-                  Clear all
-                </Button>
+                ) : (
+                  <>
+                    <Button color="green" onClick={handleSubmit}>
+                      <Send data-slot="icon" aria-hidden="true" />
+                      Submit
+                    </Button>
+                    <Button outline onClick={handleClearAll}>
+                      <Trash2 data-slot="icon" aria-hidden="true" />
+                      Clear all
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           </div>

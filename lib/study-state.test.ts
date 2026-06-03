@@ -67,33 +67,35 @@ describe('study state helpers', () => {
     })
   })
 
-  it('keeps easy and hard answer maps separate when setting answers', () => {
+  it('shares answers between easy and hard modes when setting answers', () => {
     let state = createEmptyStudyState()
 
     state = setAnswer(state, 'easy', 'rank-pfc', 'PFC')
     state = setAnswer(state, 'hard', 'rank-pfc', 'Private First Class')
 
-    expect(state.answersByMode.easy).toEqual({ 'rank-pfc': 'PFC' })
+    expect(state.mode).toBe('hard')
+    expect(state.answersByMode.easy).toEqual({ 'rank-pfc': 'Private First Class' })
     expect(state.answersByMode.hard).toEqual({ 'rank-pfc': 'Private First Class' })
   })
 
-  it('marks only the chosen mode as submitted', () => {
+  it('marks both modes as submitted', () => {
     const state = markSubmitted(createEmptyStudyState(), 'hard')
 
     expect(state.submittedByMode).toEqual({
-      easy: false,
+      easy: true,
       hard: true,
     })
   })
 
-  it('clears only the chosen mode answers and submitted state for retakes', () => {
+  it('clears all answers and submitted state for retakes while preserving the selected mode', () => {
     const state = retakeMode(populatedState(), 'easy')
 
+    expect(state.mode).toBe('easy')
     expect(state.answersByMode.easy).toEqual({})
-    expect(state.answersByMode.hard).toEqual({ alpha: 'hard answer', bravo: 'second hard answer' })
+    expect(state.answersByMode.hard).toEqual({})
     expect(state.submittedByMode).toEqual({
       easy: false,
-      hard: true,
+      hard: false,
     })
   })
 
@@ -108,6 +110,37 @@ describe('study state helpers', () => {
     expect(state.submittedByMode).toEqual({
       easy: false,
       hard: false,
+    })
+  })
+
+  it('loads legacy separate mode answers as one shared answer map with the selected mode winning conflicts', () => {
+    const storage = new FakeStorage()
+
+    storage.setItem(
+      STUDY_STORAGE_KEY,
+      JSON.stringify({
+        mode: 'hard',
+        answersByMode: {
+          easy: { alpha: 'easy answer', charlie: 'easy only' },
+          hard: { alpha: 'hard answer', bravo: 'hard only' },
+        },
+        submittedByMode: {
+          easy: false,
+          hard: true,
+        },
+      }),
+    )
+
+    expect(loadStudyState(storage)).toEqual({
+      mode: 'hard',
+      answersByMode: {
+        easy: { alpha: 'hard answer', charlie: 'easy only', bravo: 'hard only' },
+        hard: { alpha: 'hard answer', charlie: 'easy only', bravo: 'hard only' },
+      },
+      submittedByMode: {
+        easy: true,
+        hard: true,
+      },
     })
   })
 

@@ -40,12 +40,48 @@ export function normalizeAnswer(answer: string): string {
   return normalizeTypography(answer).trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US')
 }
 
-function normalizeRankAnswer(answer: string): string {
-  return normalizeAnswer(answer).replace(/[^\p{L}\p{N}]+/gu, '')
+function normalizeCase(answer: string): string {
+  return normalizeTypography(answer).toLocaleLowerCase('en-US')
+}
+
+function normalizeWithoutWhitespaceOrPunctuation(answer: string): string {
+  return normalizeCase(answer).replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function normalizeWithoutWhitespace(answer: string): string {
+  return normalizeCase(answer).replace(/\s+/gu, '')
+}
+
+function hasWhitespace(answer: string): boolean {
+  return /\s/u.test(answer)
+}
+
+function hasPunctuation(answer: string): boolean {
+  return /[^\p{L}\p{N}]/u.test(answer)
+}
+
+function isArmyValuesField(field: StudyField): boolean {
+  return field.id.startsWith('army-values-')
+}
+
+function isSoldiersCreedField(field: StudyField): boolean {
+  return field.id.startsWith('soldiers-creed-')
 }
 
 function isMilitaryTimeField(field: StudyField): boolean {
   return field.id.startsWith('military-time-')
+}
+
+function isGeneralOrdersField(field: StudyField): boolean {
+  return field.id.startsWith('general-order-')
+}
+
+function isSpecialOrdersField(field: StudyField): boolean {
+  return field.id.startsWith('special-orders-')
+}
+
+function isPhoneticAlphabetField(field: StudyField): boolean {
+  return field.id.startsWith('phonetic-')
 }
 
 function isRankField(field: StudyField): boolean {
@@ -56,20 +92,140 @@ function getAcceptedAnswers(field: StudyField): readonly string[] {
   return [field.answer, ...(field.aliases ?? [])]
 }
 
-function gradeMilitaryTime(field: StudyField, answer: string): boolean {
-  const normalizedAnswer = normalizeAnswer(answer)
+function gradeArmyValue(field: StudyField, answer: string): boolean {
+  const normalizedAnswer = normalizeCase(answer)
 
-  return /^\d{4}$/.test(normalizedAnswer) && normalizedAnswer === field.answer
+  if (!normalizedAnswer || hasWhitespace(normalizedAnswer)) {
+    return false
+  }
+
+  const withoutOptionalPeriod = normalizedAnswer.endsWith('.') ? normalizedAnswer.slice(0, -1) : normalizedAnswer
+
+  if (!withoutOptionalPeriod || hasPunctuation(withoutOptionalPeriod)) {
+    return false
+  }
+
+  return getAcceptedAnswers(field).some((acceptedAnswer) => {
+    return normalizeWithoutWhitespace(acceptedAnswer) === withoutOptionalPeriod
+  })
 }
 
-function gradeRank(field: StudyField, answer: string): boolean {
-  const normalizedAnswer = normalizeRankAnswer(answer)
+function gradeLooseText(field: StudyField, answer: string): boolean {
+  const normalizedAnswer = normalizeWithoutWhitespaceOrPunctuation(answer)
 
   if (!normalizedAnswer) {
     return false
   }
 
-  return getAcceptedAnswers(field).some((acceptedAnswer) => normalizeRankAnswer(acceptedAnswer) === normalizedAnswer)
+  return getAcceptedAnswers(field).some((acceptedAnswer) => {
+    return normalizeWithoutWhitespaceOrPunctuation(acceptedAnswer) === normalizedAnswer
+  })
+}
+
+function gradeMilitaryTime(field: StudyField, answer: string): boolean {
+  const normalizedAnswer = normalizeTypography(answer)
+
+  return [field.answer, `${field.answer}Z`, `${field.answer} hours`, `${field.answer} hrs`].includes(normalizedAnswer)
+}
+
+function gradePhoneticAlphabet(field: StudyField, answer: string): boolean {
+  const normalizedAnswer = normalizeCase(answer)
+
+  if (!normalizedAnswer || hasWhitespace(normalizedAnswer) || hasPunctuation(normalizedAnswer)) {
+    return false
+  }
+
+  return getAcceptedAnswers(field).some((acceptedAnswer) => {
+    return normalizeWithoutWhitespaceOrPunctuation(acceptedAnswer) === normalizedAnswer
+  })
+}
+
+function containsPayGrade(answer: string): boolean {
+  return /\b[A-Z]-\d+\b/i.test(answer)
+}
+
+function isRankAbbreviation(answer: string): boolean {
+  return /^[A-Z0-9]{2,4}$/.test(answer)
+}
+
+function addRankPart(parts: Set<string>, value: string): void {
+  const normalizedValue = normalizeWithoutWhitespaceOrPunctuation(value)
+
+  if (normalizedValue) {
+    parts.add(normalizedValue)
+  }
+}
+
+function getRankAcceptedAnswers(field: StudyField): Set<string> {
+  const acceptedAnswers = getAcceptedAnswers(field).filter((acceptedAnswer) => !containsPayGrade(acceptedAnswer))
+  const accepted = new Set<string>()
+  const fullRanks = new Set<string>()
+  const abbreviations = new Set<string>()
+
+  for (const acceptedAnswer of acceptedAnswers) {
+    addRankPart(accepted, acceptedAnswer)
+
+    const parentheticalMatch = acceptedAnswer.match(/^\s*(.*?)\s*\(([^)]+)\)\s*$/)
+
+    if (parentheticalMatch) {
+      addRankPart(fullRanks, parentheticalMatch[1])
+      addRankPart(abbreviations, parentheticalMatch[2])
+    }
+
+    const withoutParenthetical = acceptedAnswer.replace(/\([^)]*\)/g, ' ').trim()
+
+    if (isRankAbbreviation(withoutParenthetical)) {
+      addRankPart(abbreviations, withoutParenthetical)
+    }
+  }
+
+  const normalizedAbbreviations = new Set(abbreviations)
+
+  for (const acceptedAnswer of acceptedAnswers) {
+    const withoutParenthetical = acceptedAnswer.replace(/\([^)]*\)/g, ' ').trim()
+    const tokens = withoutParenthetical.split(/\s+/).filter(Boolean)
+    const firstToken = tokens[0]
+    const lastToken = tokens.at(-1)
+
+    if (firstToken && normalizedAbbreviations.has(normalizeWithoutWhitespaceOrPunctuation(firstToken))) {
+      tokens.shift()
+    }
+
+    if (lastToken && normalizedAbbreviations.has(normalizeWithoutWhitespaceOrPunctuation(lastToken))) {
+      tokens.pop()
+    }
+
+    const fullRank = tokens.join(' ')
+
+    if (fullRank && !isRankAbbreviation(fullRank)) {
+      addRankPart(fullRanks, fullRank)
+    }
+  }
+
+  for (const fullRank of fullRanks) {
+    accepted.add(fullRank)
+
+    for (const abbreviation of abbreviations) {
+      accepted.add(`${fullRank}${abbreviation}`)
+      accepted.add(`${abbreviation}${fullRank}`)
+    }
+  }
+
+  for (const abbreviation of abbreviations) {
+    accepted.add(abbreviation)
+  }
+
+  return accepted
+}
+
+function gradeRank(field: StudyField, answer: string): boolean {
+  const normalizedAnswer = normalizeWithoutWhitespaceOrPunctuation(answer)
+
+  if (!normalizedAnswer) {
+    return false
+  }
+
+  return getRankAcceptedAnswers(field).has(normalizedAnswer)
 }
 
 function gradeText(field: StudyField, answer: string): boolean {
@@ -83,11 +239,17 @@ function gradeText(field: StudyField, answer: string): boolean {
 }
 
 export function gradeField(field: StudyField, answer: string): FieldGrade {
-  const isCorrect = isMilitaryTimeField(field)
-    ? gradeMilitaryTime(field, answer)
-    : isRankField(field)
-      ? gradeRank(field, answer)
-      : gradeText(field, answer)
+  const isCorrect = isArmyValuesField(field)
+    ? gradeArmyValue(field, answer)
+    : isSoldiersCreedField(field) || isGeneralOrdersField(field) || isSpecialOrdersField(field)
+      ? gradeLooseText(field, answer)
+      : isMilitaryTimeField(field)
+        ? gradeMilitaryTime(field, answer)
+        : isPhoneticAlphabetField(field)
+          ? gradePhoneticAlphabet(field, answer)
+          : isRankField(field)
+            ? gradeRank(field, answer)
+            : gradeText(field, answer)
 
   return {
     fieldId: field.id,
@@ -132,4 +294,3 @@ export function gradeModeAnswers(
     totalCount,
   }
 }
-
