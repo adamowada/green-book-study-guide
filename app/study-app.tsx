@@ -817,10 +817,6 @@ export function StudyApp() {
     setState((currentState) => markSubmitted(currentState, currentState.mode))
   }
 
-  function handlePreviewCelebration() {
-    playCelebration(mode)
-  }
-
   function handleRetake() {
     setState((currentState) => retakeMode(currentState, currentState.mode))
   }
@@ -842,14 +838,6 @@ export function StudyApp() {
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
-              <button
-                type="button"
-                aria-label={`Preview ${modeLabels[mode]} mode celebration`}
-                onClick={handlePreviewCelebration}
-                className="inline-flex size-11 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-100 hover:text-green-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-800"
-              >
-                <Star className={clsx('size-5', mode === 'hard' && 'fill-amber-300 text-amber-500')} aria-hidden="true" />
-              </button>
               <button
                 type="button"
                 aria-label={isMobileMenuOpen ? 'Close section navigation' : 'Open section navigation'}
@@ -943,10 +931,6 @@ export function StudyApp() {
               </div>
 
               <div className="flex flex-wrap gap-2 sm:justify-end">
-                <Button outline onClick={handlePreviewCelebration}>
-                  <Star data-slot="icon" aria-hidden="true" />
-                  Celebrate
-                </Button>
                 {submitted ? (
                   <Button outline onClick={handleRetake}>
                     <RotateCcw data-slot="icon" aria-hidden="true" />
