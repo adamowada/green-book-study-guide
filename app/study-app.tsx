@@ -655,7 +655,7 @@ export function StudyApp() {
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8 lg:py-4">
           <div className="flex items-center justify-between gap-4 lg:hidden">
             <div className="min-w-0">
-              <h1 className="truncate text-lg/7 font-semibold text-zinc-950 sm:text-xl/8">Green Book Memorizer</h1>
+              <h1 className="truncate text-lg/7 font-semibold text-zinc-950 sm:text-xl/8">Green Book Study Guide</h1>
               <p className="mt-0.5 text-sm/6 font-medium text-zinc-600" aria-live="polite">
                 {submitted ? 'Score' : 'Progress'} {headerValue}/{headerTotal}
               </p>
@@ -729,7 +729,7 @@ export function StudyApp() {
 
           <div className="hidden lg:flex lg:items-center lg:justify-between lg:gap-4">
             <div className="min-w-0">
-              <Heading>Green Book Memorizer</Heading>
+              <Heading>Green Book Study Guide</Heading>
               <Text className="mt-1 max-w-2xl">
                 Army Values, Soldier&apos;s Creed, Military Time, Orders, Phonetic Alphabet, and Rank Structure.
               </Text>

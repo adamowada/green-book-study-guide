@@ -14,4 +14,4 @@ export type StoredStudyState = {
   isSubmitted: boolean
 }
 
-export const STUDY_STORAGE_KEY = 'green-book-memorizer:v1'
+export const STUDY_STORAGE_KEY = 'green-book-study-guide:v1'

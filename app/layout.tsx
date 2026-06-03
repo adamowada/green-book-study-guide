@@ -2,8 +2,8 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Green Book Memorizer',
-  description: 'A local-first scaffold for memorizing selected Green Book sections.',
+  title: 'Green Book Study Guide',
+  description: 'A local-first study guide for memorizing selected Green Book sections.',
   manifest: '/site.webmanifest',
   icons: {
     icon: [

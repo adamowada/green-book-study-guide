@@ -1,4 +1,4 @@
-# Green Book Memorizer Website Plan
+# Green Book Study Guide Website Plan
 
 ## Summary
 
@@ -47,7 +47,7 @@ After each implementation stage, add, commit, and push the completed work to `ma
 ### 3. Define Client State And Grading
 
 - Add core types for study mode, study sections, study items, study fields, and stored shared-attempt state.
-- Store drafts in `localStorage` under `green-book-memorizer:v1` when browser storage is available, and fall back silently to in-memory state for the current open page when it is blocked.
+- Store drafts in `localStorage` under `green-book-study-guide:v1` when browser storage is available, and fall back silently to in-memory state for the current open page when it is blocked.
 - Keep a single shared answer map and submission state. `easy` and `hard` are study modes for the same attempt, not separate attempts.
 - `Clear all`: clears the shared attempt answers and submission state, but keeps the selected study mode.
 - `Submit`: grades the shared attempt, marks inputs read-only, shows wrong corrections in red, and displays section/global scores.
