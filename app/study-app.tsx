@@ -1,5 +1,6 @@
 'use client'
 
+import type canvasConfetti from 'canvas-confetti'
 import clsx from 'clsx'
 import {
   BookOpen,
@@ -29,6 +30,7 @@ import { Heading, Subheading } from '@/components/heading'
 import { Input } from '@/components/input'
 import { Text } from '@/components/text'
 import { Textarea } from '@/components/textarea'
+import { getPerfectScoreCelebrationMode, type CelebrationMode } from '@/lib/celebration'
 import { getFieldPlaceholder, getPayGradePlaceholder } from '@/lib/cloze'
 import { gradeModeAnswers, type FieldGrade, type ModeGrade } from '@/lib/grading'
 import { getRankPayGradeFieldId, greenBookSections, type GreenBookSectionId } from '@/lib/green-book-content'
@@ -65,15 +67,122 @@ const studySections: readonly StudySection[] = greenBookSections
 const allFields = studySections.flatMap((section) => section.fields)
 const totalFieldCount = allFields.length
 const currentYear = new Date().getFullYear()
+const CELEBRATION_DURATION_MS = 5000
+const CELEBRATION_CONFETTI_Z_INDEX = 100
+const CELEBRATION_COLORS = ['#c084fc', '#fb7185', '#60a5fa', '#facc15', '#fb923c']
 const storageSubscribers = new Set<() => void>()
 let inMemoryStudyState: StoredStudyState = createEmptyStudyState()
 let isUsingInMemoryStudyState = false
+let loadedConfetti: ConfettiFunction | null = null
+let confettiLoadPromise: Promise<ConfettiFunction> | null = null
+
+type CelebrationState = {
+  id: number
+  mode: CelebrationMode
+}
+
+type ConfettiFunction = typeof canvasConfetti
+type ConfettiOptions = NonNullable<Parameters<ConfettiFunction>[0]>
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="currentColor" className={className} aria-hidden="true">
       <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82A7.58 7.58 0 0 1 8 3.86c.68.01 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z" />
     </svg>
+  )
+}
+
+function loadConfetti(): Promise<ConfettiFunction> {
+  confettiLoadPromise ??= import('canvas-confetti').then((module) => {
+    loadedConfetti = module.default
+    return module.default
+  })
+
+  return confettiLoadPromise
+}
+
+function getConfettiRainOptions(): ConfettiOptions {
+  return {
+    angle: 270,
+    colors: CELEBRATION_COLORS,
+    decay: 0.91,
+    disableForReducedMotion: true,
+    drift: (Math.random() - 0.5) * 0.7,
+    gravity: 0.85,
+    origin: { x: Math.random(), y: -0.08 },
+    particleCount: 10,
+    scalar: 0.8 + Math.random() * 0.35,
+    shapes: ['square', 'circle'],
+    spread: 80,
+    startVelocity: 16 + Math.random() * 8,
+    ticks: 240,
+    zIndex: CELEBRATION_CONFETTI_Z_INDEX,
+  }
+}
+
+function FacetedGoldStar({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 400 400" className={className} aria-hidden="true">
+      <path
+        fill="#f8b51d"
+        stroke="#a66a24"
+        strokeLinejoin="round"
+        strokeWidth="10"
+        d="M200 24 239 145h128L263 221l40 126-103-76L97 347l40-126L33 145h128L200 24Z"
+      />
+      <path fill="#ffd84a" d="M200 24 200 197 239 145Z" />
+      <path fill="#fff2a3" d="M200 197 239 145h128Z" />
+      <path fill="#ffe070" d="M200 197 263 221l104-76Z" />
+      <path fill="#f7a91a" d="M200 197 263 221l40 126Z" />
+      <path fill="#ffc533" d="M200 197 200 271l103 76Z" />
+      <path fill="#f4a91b" d="M200 197 97 347l103-76Z" />
+      <path fill="#f8b51d" d="M200 197 137 221 97 347Z" />
+      <path fill="#ffe58a" d="M200 197 33 145l104 76Z" />
+      <path fill="#fff3af" d="M200 197 161 145H33Z" />
+      <path fill="#f6b11f" d="M200 24 161 145l39 52Z" />
+      <path
+        fill="none"
+        stroke="#a66a24"
+        strokeLinejoin="round"
+        strokeWidth="4"
+        d="M200 24v247M33 145l167 52 167-52M97 347l103-150 103 150M161 145l39 52 39-52M137 221l63-24 63 24"
+      />
+      <path
+        fill="none"
+        stroke="#ffffff"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeOpacity="0.75"
+        strokeWidth="4"
+        d="M52 153 137 221M182 55 163 141M220 153 203 191M292 335 263 224"
+      />
+    </svg>
+  )
+}
+
+function CelebrationOverlay({ celebration }: { celebration: CelebrationState | null }) {
+  if (celebration?.mode !== 'hard') {
+    return null
+  }
+
+  return (
+    <div
+      key={celebration.id}
+      className="pointer-events-none absolute inset-x-0 top-1/2 z-[80] flex -translate-y-1/2 justify-center"
+      aria-hidden="true"
+    >
+      <div className="flex items-center justify-center">
+        <div className="z-0 -mr-3 size-[4.5rem] translate-x-2 translate-y-3 -rotate-12 sm:-mr-5 sm:size-[6rem] sm:translate-x-4 sm:translate-y-4">
+          <FacetedGoldStar className="size-full" />
+        </div>
+        <div className="z-10 size-[6rem] sm:size-[8rem]">
+          <FacetedGoldStar className="size-full" />
+        </div>
+        <div className="z-0 -ml-3 size-[4.5rem] -translate-x-2 translate-y-3 rotate-12 sm:-ml-5 sm:size-[6rem] sm:-translate-x-4 sm:translate-y-4">
+          <FacetedGoldStar className="size-full" />
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -619,6 +728,10 @@ function StudySectionPanel({
 export function StudyApp() {
   const [state, setState] = useStoredStudyState()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [celebration, setCelebration] = useState<CelebrationState | null>(null)
+  const celebrationIntervalRef = useRef<number | null>(null)
+  const celebrationTimeoutRef = useRef<number | null>(null)
+  const celebrationIdRef = useRef(0)
 
   const mode = state.mode
   const answers = getAttemptAnswers(state)
@@ -631,6 +744,54 @@ export function StudyApp() {
   const headerValue = submitted ? grade.correctCount : answeredCount
   const headerTotal = submitted ? grade.totalCount : totalFieldCount
   const mobileMenuId = 'green-book-mobile-menu'
+
+  const clearCelebrationTimers = useCallback(() => {
+    celebrationIdRef.current += 1
+
+    if (celebrationIntervalRef.current !== null) {
+      window.clearInterval(celebrationIntervalRef.current)
+      celebrationIntervalRef.current = null
+    }
+
+    if (celebrationTimeoutRef.current !== null) {
+      window.clearTimeout(celebrationTimeoutRef.current)
+      celebrationTimeoutRef.current = null
+    }
+
+    loadedConfetti?.reset()
+  }, [])
+
+  const playCelebration = useCallback(
+    (celebrationMode: CelebrationMode) => {
+      clearCelebrationTimers()
+      const celebrationId = celebrationIdRef.current + 1
+      celebrationIdRef.current = celebrationId
+      setCelebration(celebrationMode === 'hard' ? { id: celebrationId, mode: celebrationMode } : null)
+
+      function fireRain() {
+        void loadConfetti().then((confetti) => {
+          if (celebrationIdRef.current !== celebrationId) {
+            return
+          }
+
+          confetti(getConfettiRainOptions())
+        })
+      }
+
+      fireRain()
+      celebrationIntervalRef.current = window.setInterval(fireRain, 90)
+
+      celebrationTimeoutRef.current = window.setTimeout(() => {
+        clearCelebrationTimers()
+        setCelebration(null)
+      }, CELEBRATION_DURATION_MS)
+    },
+    [clearCelebrationTimers],
+  )
+
+  useEffect(() => {
+    return () => clearCelebrationTimers()
+  }, [clearCelebrationTimers])
 
   function handleModeChange(nextMode: Mode) {
     setState((currentState) => ({ ...currentState, mode: nextMode }))
@@ -647,7 +808,17 @@ export function StudyApp() {
   }
 
   function handleSubmit() {
+    const celebrationMode = getPerfectScoreCelebrationMode(grade)
+
+    if (celebrationMode) {
+      playCelebration(celebrationMode)
+    }
+
     setState((currentState) => markSubmitted(currentState, currentState.mode))
+  }
+
+  function handlePreviewCelebration() {
+    playCelebration(mode)
   }
 
   function handleRetake() {
@@ -661,6 +832,7 @@ export function StudyApp() {
   return (
     <main className="min-h-screen scroll-smooth bg-zinc-100 text-zinc-950">
       <header className="sticky top-0 z-30 border-b border-zinc-200 bg-zinc-50/95 backdrop-blur">
+        <CelebrationOverlay celebration={celebration} />
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8 lg:py-4">
           <div className="flex items-center justify-between gap-4 lg:hidden">
             <div className="min-w-0">
@@ -669,20 +841,30 @@ export function StudyApp() {
                 {submitted ? 'Score' : 'Progress'} {headerValue}/{headerTotal}
               </p>
             </div>
-            <button
-              type="button"
-              aria-label={isMobileMenuOpen ? 'Close section navigation' : 'Open section navigation'}
-              aria-controls={mobileMenuId}
-              aria-expanded={isMobileMenuOpen}
-              onClick={() => setIsMobileMenuOpen((currentValue) => !currentValue)}
-              className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-100 hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-800"
-            >
-              {isMobileMenuOpen ? (
-                <X className="size-5" aria-hidden="true" />
-              ) : (
-                <Menu className="size-5" aria-hidden="true" />
-              )}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                aria-label={`Preview ${modeLabels[mode]} mode celebration`}
+                onClick={handlePreviewCelebration}
+                className="inline-flex size-11 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-100 hover:text-green-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-800"
+              >
+                <Star className={clsx('size-5', mode === 'hard' && 'fill-amber-300 text-amber-500')} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                aria-label={isMobileMenuOpen ? 'Close section navigation' : 'Open section navigation'}
+                aria-controls={mobileMenuId}
+                aria-expanded={isMobileMenuOpen}
+                onClick={() => setIsMobileMenuOpen((currentValue) => !currentValue)}
+                className="inline-flex size-11 items-center justify-center rounded-lg border border-zinc-200 bg-white text-zinc-700 shadow-sm transition hover:bg-zinc-100 hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-green-800"
+              >
+                {isMobileMenuOpen ? (
+                  <X className="size-5" aria-hidden="true" />
+                ) : (
+                  <Menu className="size-5" aria-hidden="true" />
+                )}
+              </button>
+            </div>
           </div>
 
           <div
@@ -761,6 +943,10 @@ export function StudyApp() {
               </div>
 
               <div className="flex flex-wrap gap-2 sm:justify-end">
+                <Button outline onClick={handlePreviewCelebration}>
+                  <Star data-slot="icon" aria-hidden="true" />
+                  Celebrate
+                </Button>
                 {submitted ? (
                   <Button outline onClick={handleRetake}>
                     <RotateCcw data-slot="icon" aria-hidden="true" />
