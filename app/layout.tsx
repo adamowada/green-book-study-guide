@@ -1,9 +1,30 @@
 import type { Metadata } from 'next'
+
+import { getSiteUrl, siteDescription, siteName, siteUrl } from '@/lib/site-config'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Green Book Study Guide',
-  description: 'A local-first study guide for memorizing selected Green Book sections.',
+  metadataBase: new URL(siteUrl),
+  title: {
+    default: siteName,
+    template: `%s | ${siteName}`,
+  },
+  description: siteDescription,
+  alternates: {
+    canonical: '/',
+  },
+  openGraph: {
+    title: siteName,
+    description: siteDescription,
+    url: getSiteUrl(),
+    siteName,
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    title: siteName,
+    description: siteDescription,
+  },
   manifest: '/site.webmanifest',
   icons: {
     icon: [
@@ -12,6 +33,10 @@ export const metadata: Metadata = {
       { url: '/favicon-16x16.png', sizes: '16x16', type: 'image/png' },
     ],
     apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
+  robots: {
+    index: true,
+    follow: true,
   },
 }
 

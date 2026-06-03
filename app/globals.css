@@ -1,4 +1,13 @@
-@import "tailwindcss";
+@import "tailwindcss" source(none);
+
+@source "./**/*.{ts,tsx}";
+@source "../components/badge.tsx";
+@source "../components/button.tsx";
+@source "../components/divider.tsx";
+@source "../components/heading.tsx";
+@source "../components/input.tsx";
+@source "../components/text.tsx";
+@source "../components/textarea.tsx";
 
 @custom-variant dark (&:where(.dark, .dark *));
 

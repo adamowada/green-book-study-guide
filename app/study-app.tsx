@@ -42,7 +42,6 @@ import {
   loadStudyState,
   markSubmitted,
   retakeMode,
-  saveStudyState,
   setAnswer,
   STUDY_MODES,
 } from '@/lib/study-state'
@@ -70,9 +69,13 @@ const currentYear = new Date().getFullYear()
 const CELEBRATION_DURATION_MS = 5000
 const CELEBRATION_CONFETTI_Z_INDEX = 100
 const CELEBRATION_COLORS = ['#c084fc', '#fb7185', '#60a5fa', '#facc15', '#fb923c']
+const STORAGE_SAVE_DELAY_MS = 250
 const storageSubscribers = new Set<() => void>()
 let inMemoryStudyState: StoredStudyState = createEmptyStudyState()
 let isUsingInMemoryStudyState = false
+let currentStudyStateSnapshot = ''
+let pendingStudyStateSnapshot: string | null = null
+let pendingStudyStateSaveTimeout: number | null = null
 let loadedConfetti: ConfettiFunction | null = null
 let confettiLoadPromise: Promise<ConfettiFunction> | null = null
 
@@ -83,6 +86,36 @@ type CelebrationState = {
 
 type ConfettiFunction = typeof canvasConfetti
 type ConfettiOptions = NonNullable<Parameters<ConfettiFunction>[0]>
+
+const rankImageDimensions: Record<string, { width: number; height: number }> = {
+  '/ranks/rank-1lt.png': { width: 43, height: 97 },
+  '/ranks/rank-1sg.png': { width: 62, height: 88 },
+  '/ranks/rank-2lt.png': { width: 43, height: 98 },
+  '/ranks/rank-bg.png': { width: 67, height: 64 },
+  '/ranks/rank-col.png': { width: 70, height: 38 },
+  '/ranks/rank-cpl.png': { width: 57, height: 59 },
+  '/ranks/rank-cpt.png': { width: 63, height: 62 },
+  '/ranks/rank-csm.png': { width: 66, height: 110 },
+  '/ranks/rank-cw2.png': { width: 44, height: 96 },
+  '/ranks/rank-cw3.png': { width: 46, height: 100 },
+  '/ranks/rank-cw4.png': { width: 42, height: 100 },
+  '/ranks/rank-cw5.png': { width: 28, height: 85 },
+  '/ranks/rank-gen.png': { width: 143, height: 39 },
+  '/ranks/rank-ltc.png': { width: 65, height: 74 },
+  '/ranks/rank-ltg.png': { width: 112, height: 41 },
+  '/ranks/rank-maj.png': { width: 62, height: 65 },
+  '/ranks/rank-mg.png': { width: 112, height: 57 },
+  '/ranks/rank-msg.png': { width: 51, height: 89 },
+  '/ranks/rank-pfc.png': { width: 57, height: 60 },
+  '/ranks/rank-pv2.png': { width: 57, height: 51 },
+  '/ranks/rank-sfc.png': { width: 59, height: 88 },
+  '/ranks/rank-sgm.png': { width: 57, height: 92 },
+  '/ranks/rank-sgt.png': { width: 53, height: 58 },
+  '/ranks/rank-sma.png': { width: 60, height: 112 },
+  '/ranks/rank-spc.png': { width: 57, height: 58 },
+  '/ranks/rank-ssg.png': { width: 69, height: 89 },
+  '/ranks/rank-wo1.png': { width: 42, height: 94 },
+}
 
 function GitHubIcon({ className }: { className?: string }) {
   return (
@@ -190,9 +223,53 @@ function serializeStudyState(state: StoredStudyState): string {
   return JSON.stringify(state)
 }
 
+function saveSerializedStudyState(snapshot: string): boolean {
+  try {
+    window.localStorage.setItem(STUDY_STORAGE_KEY, snapshot)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function flushPendingStudyStateSave() {
+  if (pendingStudyStateSaveTimeout !== null) {
+    window.clearTimeout(pendingStudyStateSaveTimeout)
+    pendingStudyStateSaveTimeout = null
+  }
+
+  if (pendingStudyStateSnapshot === null || isUsingInMemoryStudyState) {
+    return
+  }
+
+  if (!saveSerializedStudyState(pendingStudyStateSnapshot)) {
+    isUsingInMemoryStudyState = true
+  }
+
+  pendingStudyStateSnapshot = null
+}
+
+function scheduleStudyStateSave(snapshot: string) {
+  if (typeof window === 'undefined' || isUsingInMemoryStudyState) {
+    return
+  }
+
+  pendingStudyStateSnapshot = snapshot
+
+  if (pendingStudyStateSaveTimeout !== null) {
+    window.clearTimeout(pendingStudyStateSaveTimeout)
+  }
+
+  pendingStudyStateSaveTimeout = window.setTimeout(flushPendingStudyStateSave, STORAGE_SAVE_DELAY_MS)
+}
+
 function getStudyStateSnapshot(): string {
   if (typeof window === 'undefined') {
     return ''
+  }
+
+  if (currentStudyStateSnapshot) {
+    return currentStudyStateSnapshot
   }
 
   if (isUsingInMemoryStudyState) {
@@ -200,7 +277,8 @@ function getStudyStateSnapshot(): string {
   }
 
   try {
-    return window.localStorage.getItem(STUDY_STORAGE_KEY) ?? ''
+    currentStudyStateSnapshot = window.localStorage.getItem(STUDY_STORAGE_KEY) ?? ''
+    return currentStudyStateSnapshot
   } catch {
     isUsingInMemoryStudyState = true
     return serializeStudyState(inMemoryStudyState)
@@ -214,6 +292,7 @@ function subscribeToStudyStorage(listener: () => void): () => void {
 
   function handleStorage(event: StorageEvent) {
     if (event.key === STUDY_STORAGE_KEY) {
+      currentStudyStateSnapshot = event.newValue ?? ''
       listener()
     }
   }
@@ -252,14 +331,23 @@ function useStoredStudyState(): [StoredStudyState, (updater: (currentState: Stor
     inMemoryStudyState = state
   }, [state])
 
+  useEffect(() => {
+    window.addEventListener('pagehide', flushPendingStudyStateSave)
+
+    return () => {
+      window.removeEventListener('pagehide', flushPendingStudyStateSave)
+      flushPendingStudyStateSave()
+    }
+  }, [])
+
   const updateState = useCallback((updater: (currentState: StoredStudyState) => StoredStudyState) => {
     const nextState = updater(state)
+    const nextSnapshot = serializeStudyState(nextState)
 
     inMemoryStudyState = nextState
+    currentStudyStateSnapshot = nextSnapshot
 
-    if (!isUsingInMemoryStudyState && !saveStudyState(nextState)) {
-      isUsingInMemoryStudyState = true
-    }
+    scheduleStudyStateSave(nextSnapshot)
 
     emitStudyStorageChange()
   }, [state])
@@ -426,7 +514,7 @@ function ProgressBar({
   return (
     <div className={clsx('overflow-hidden rounded-full bg-zinc-200', compact ? 'h-1.5' : 'h-2')}>
       <div
-        className={clsx('h-full rounded-full transition-all', submitted ? 'bg-green-800' : 'bg-amber-500')}
+        className={clsx('h-full rounded-full transition-[width]', submitted ? 'bg-green-800' : 'bg-amber-500')}
         style={{ width: `${width}%` }}
       />
     </div>
@@ -440,7 +528,7 @@ function SectionNav({
   onNavigate,
 }: {
   answers: AnswerMap
-  grade: ModeGrade
+  grade: ModeGrade | null
   submitted: boolean
   onNavigate?: () => void
 }) {
@@ -449,7 +537,7 @@ function SectionNav({
       <div className="space-y-2">
         {studySections.map((section) => {
           const Icon = sectionIcons[section.id]
-          const sectionGrade = getSectionGrade(grade, section.id)
+          const sectionGrade = grade ? getSectionGrade(grade, section.id) : undefined
           const value = submitted ? (sectionGrade?.correctCount ?? 0) : countAnsweredFields(section.fields, answers)
           const total = section.fields.length
 
@@ -491,7 +579,10 @@ function RankTile({ field, submitted }: { field: StudyField; submitted: boolean 
         <img
           src={field.imageSrc}
           alt={getRankImageAlt(field, submitted)}
+          width={rankImageDimensions[field.imageSrc]?.width}
+          height={rankImageDimensions[field.imageSrc]?.height}
           loading="lazy"
+          decoding="async"
           className="max-h-20 max-w-24 object-contain"
         />
       ) : (
@@ -674,13 +765,13 @@ function StudySectionPanel({
 }: {
   section: StudySection
   answers: AnswerMap
-  grade: ModeGrade
+  grade: ModeGrade | null
   mode: Mode
   submitted: boolean
   onAnswerChange: (fieldId: string, value: string) => void
 }) {
   const Icon = sectionIcons[section.id]
-  const sectionGrade = getSectionGrade(grade, section.id)
+  const sectionGrade = grade ? getSectionGrade(grade, section.id) : undefined
   const answeredCount = countAnsweredFields(section.fields, answers)
   const value = submitted ? (sectionGrade?.correctCount ?? 0) : answeredCount
 
@@ -714,7 +805,7 @@ function StudySectionPanel({
             field={field}
             answer={answers[field.id] ?? ''}
             payGradeAnswer={answers[getRankPayGradeFieldId(field.id)] ?? ''}
-            grade={submitted ? grade.fieldsById[field.id] : undefined}
+            grade={submitted ? grade?.fieldsById[field.id] : undefined}
             mode={mode}
             submitted={submitted}
             onAnswerChange={onAnswerChange}
@@ -736,13 +827,10 @@ export function StudyApp() {
   const mode = state.mode
   const answers = getAttemptAnswers(state)
   const submitted = isAttemptSubmitted(state)
-  const grade = useMemo(
-    () => gradeModeAnswers(studySections, answers, mode),
-    [answers, mode],
-  )
+  const grade = useMemo(() => (submitted ? gradeModeAnswers(studySections, answers, mode) : null), [answers, mode, submitted])
   const answeredCount = useMemo(() => countAnsweredFields(allFields, answers), [answers])
-  const headerValue = submitted ? grade.correctCount : answeredCount
-  const headerTotal = submitted ? grade.totalCount : totalFieldCount
+  const headerValue = submitted ? (grade?.correctCount ?? 0) : answeredCount
+  const headerTotal = submitted ? (grade?.totalCount ?? totalFieldCount) : totalFieldCount
   const mobileMenuId = 'green-book-mobile-menu'
 
   const clearCelebrationTimers = useCallback(() => {
@@ -764,22 +852,27 @@ export function StudyApp() {
   const playCelebration = useCallback(
     (celebrationMode: CelebrationMode) => {
       clearCelebrationTimers()
+
+      if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        return
+      }
+
       const celebrationId = celebrationIdRef.current + 1
       celebrationIdRef.current = celebrationId
       setCelebration(celebrationMode === 'hard' ? { id: celebrationId, mode: celebrationMode } : null)
 
-      function fireRain() {
-        void loadConfetti().then((confetti) => {
+      void loadConfetti().then((confetti) => {
+        function fireRain() {
           if (celebrationIdRef.current !== celebrationId) {
             return
           }
 
           confetti(getConfettiRainOptions())
-        })
-      }
+        }
 
-      fireRain()
-      celebrationIntervalRef.current = window.setInterval(fireRain, 90)
+        fireRain()
+        celebrationIntervalRef.current = window.setInterval(fireRain, 90)
+      })
 
       celebrationTimeoutRef.current = window.setTimeout(() => {
         clearCelebrationTimers()
@@ -808,7 +901,8 @@ export function StudyApp() {
   }
 
   function handleSubmit() {
-    const celebrationMode = getPerfectScoreCelebrationMode(grade)
+    const submittedGrade = gradeModeAnswers(studySections, answers, mode)
+    const celebrationMode = getPerfectScoreCelebrationMode(submittedGrade)
 
     if (celebrationMode) {
       playCelebration(celebrationMode)
@@ -827,13 +921,14 @@ export function StudyApp() {
 
   return (
     <main className="min-h-screen scroll-smooth bg-zinc-100 text-zinc-950">
+      <h1 className="sr-only">Green Book Study Guide</h1>
       <header className="sticky top-0 z-30 border-b border-zinc-200 bg-zinc-50/95 backdrop-blur">
         <CelebrationOverlay celebration={celebration} />
         <div className="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8 lg:py-4">
           <div className="flex items-center justify-between gap-4 lg:hidden">
             <div className="min-w-0">
-              <h1 className="truncate text-lg/7 font-semibold text-zinc-950 sm:text-xl/8">Green Book Study Guide</h1>
-              <p className="mt-0.5 text-sm/6 font-medium text-zinc-600" aria-live="polite">
+              <div className="truncate text-lg/7 font-semibold text-zinc-950 sm:text-xl/8">Green Book Study Guide</div>
+              <p className="mt-0.5 text-sm/6 font-medium text-zinc-600">
                 {submitted ? 'Score' : 'Progress'} {headerValue}/{headerTotal}
               </p>
             </div>
@@ -862,53 +957,55 @@ export function StudyApp() {
               isMobileMenuOpen ? 'mt-3 max-h-[calc(100dvh-5rem)] overflow-y-auto border-t border-zinc-200 pt-3 pb-2' : 'hidden',
             )}
           >
-            <div className="space-y-4">
-              <ModeControl mode={mode} onModeChange={handleModeChange} />
+            {isMobileMenuOpen ? (
+              <div className="space-y-4">
+                <ModeControl mode={mode} onModeChange={handleModeChange} />
 
-              <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm" aria-live="polite">
-                <div className="flex items-center justify-between gap-4 text-sm/6">
-                  <span className="font-semibold text-zinc-700">{submitted ? 'Score' : 'Progress'}</span>
-                  <span className="font-semibold text-zinc-950">
-                    {headerValue}/{headerTotal}
-                  </span>
+                <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm">
+                  <div className="flex items-center justify-between gap-4 text-sm/6">
+                    <span className="font-semibold text-zinc-700">{submitted ? 'Score' : 'Progress'}</span>
+                    <span className="font-semibold text-zinc-950">
+                      {headerValue}/{headerTotal}
+                    </span>
+                  </div>
+                  <div className="mt-2 w-full">
+                    <ProgressBar value={headerValue} total={headerTotal} submitted={submitted} />
+                  </div>
                 </div>
-                <div className="mt-2 w-full">
-                  <ProgressBar value={headerValue} total={headerTotal} submitted={submitted} />
+
+                <div className={clsx('grid gap-2', !submitted && 'sm:grid-cols-2')}>
+                  {submitted ? (
+                    <Button outline onClick={handleRetake}>
+                      <RotateCcw data-slot="icon" aria-hidden="true" />
+                      Retake
+                    </Button>
+                  ) : (
+                    <>
+                      <Button color="green" onClick={handleSubmit}>
+                        <Send data-slot="icon" aria-hidden="true" />
+                        Submit
+                      </Button>
+                      <Button outline onClick={handleClearAll}>
+                        <Trash2 data-slot="icon" aria-hidden="true" />
+                        Clear all
+                      </Button>
+                    </>
+                  )}
                 </div>
-              </div>
 
-              <div className={clsx('grid gap-2', !submitted && 'sm:grid-cols-2')}>
-                {submitted ? (
-                  <Button outline onClick={handleRetake}>
-                    <RotateCcw data-slot="icon" aria-hidden="true" />
-                    Retake
-                  </Button>
-                ) : (
-                  <>
-                    <Button color="green" onClick={handleSubmit}>
-                      <Send data-slot="icon" aria-hidden="true" />
-                      Submit
-                    </Button>
-                    <Button outline onClick={handleClearAll}>
-                      <Trash2 data-slot="icon" aria-hidden="true" />
-                      Clear all
-                    </Button>
-                  </>
-                )}
+                <SectionNav
+                  answers={answers}
+                  grade={grade}
+                  submitted={submitted}
+                  onNavigate={() => setIsMobileMenuOpen(false)}
+                />
               </div>
-
-              <SectionNav
-                answers={answers}
-                grade={grade}
-                submitted={submitted}
-                onNavigate={() => setIsMobileMenuOpen(false)}
-              />
-            </div>
+            ) : null}
           </div>
 
           <div className="hidden lg:flex lg:items-center lg:justify-between lg:gap-4">
             <div className="min-w-0">
-              <Heading>Green Book Study Guide</Heading>
+              <Heading level={2}>Green Book Study Guide</Heading>
               <Text className="mt-1 max-w-2xl">
                 Army Values, Soldier&apos;s Creed, Military Time, Orders, Phonetic Alphabet, and Rank Structure.
               </Text>
@@ -917,7 +1014,7 @@ export function StudyApp() {
             <div className="flex flex-col gap-3 lg:min-w-[36rem]">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end">
                 <ModeControl mode={mode} onModeChange={handleModeChange} />
-                <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm" aria-live="polite">
+                <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2 shadow-sm">
                   <div className="flex items-center justify-between gap-4 text-sm/6">
                     <span className="font-semibold text-zinc-700">{submitted ? 'Score' : 'Progress'}</span>
                     <span className="font-semibold text-zinc-950">
@@ -991,7 +1088,7 @@ export function StudyApp() {
       </div>
       <footer className="border-t border-zinc-200 bg-zinc-50">
         <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-5 text-sm/6 text-zinc-600 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <p>© {currentYear} Adam Owada. Not affiliated with or endorsed by the United States Army.</p>
+          <p>&copy; {currentYear} Adam Owada. Not affiliated with or endorsed by the United States Army.</p>
           <a
             href="https://github.com/adamowada/green-book-study-guide"
             target="_blank"

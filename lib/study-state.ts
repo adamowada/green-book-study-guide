@@ -158,9 +158,7 @@ export function clearAllAnswers(state: StoredStudyState): StoredStudyState {
 }
 
 export function getAttemptAnswers(state: StoredStudyState): AnswerMap {
-  return {
-    ...state.answers,
-  }
+  return state.answers
 }
 
 export function isAttemptSubmitted(state: StoredStudyState): boolean {

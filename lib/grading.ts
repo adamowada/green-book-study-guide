@@ -171,7 +171,15 @@ function addRankPart(parts: Set<string>, value: string): void {
   }
 }
 
+const rankAcceptedAnswersCache = new WeakMap<StudyField, Set<string>>()
+
 function getRankAcceptedAnswers(field: StudyField): Set<string> {
+  const cachedAcceptedAnswers = rankAcceptedAnswersCache.get(field)
+
+  if (cachedAcceptedAnswers) {
+    return cachedAcceptedAnswers
+  }
+
   const acceptedAnswers = getAcceptedAnswers(field)
   const accepted = new Set<string>()
   const fullRanks = new Set<string>()
@@ -229,6 +237,8 @@ function getRankAcceptedAnswers(field: StudyField): Set<string> {
   for (const abbreviation of abbreviations) {
     accepted.add(abbreviation)
   }
+
+  rankAcceptedAnswersCache.set(field, accepted)
 
   return accepted
 }
