@@ -116,7 +116,7 @@ const styles = {
       '[--btn-icon:var(--color-lime-600)] data-active:[--btn-icon:var(--color-lime-700)] data-hover:[--btn-icon:var(--color-lime-700)]',
     ],
     green: [
-      'text-white [--btn-hover-overlay:var(--color-white)]/10 [--btn-bg:var(--color-green-600)] [--btn-border:var(--color-green-700)]/90',
+      'text-white [--btn-hover-overlay:var(--color-white)]/10 [--btn-bg:var(--color-green-800)] [--btn-border:var(--color-green-900)]/90',
       '[--btn-icon:var(--color-white)]/60 data-active:[--btn-icon:var(--color-white)]/80 data-hover:[--btn-icon:var(--color-white)]/80',
     ],
     emerald: [
