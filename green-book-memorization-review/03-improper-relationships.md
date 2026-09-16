@@ -16,7 +16,7 @@ Any relationship between permanent party personnel (command team, drill sergeant
 
 ## Recommended practice scope
 
-The star technically sits beside the whole section heading, so the complete source text remains above for review. The governing regulation, however, treats DD Forms 2982 and 2983 as administrative acknowledgments rather than recitation material. DD Form 2982 is completed by trainers; Trainees read and sign DD Form 2983. I found no Army-wide requirement for Trainees to memorize either form number, title, retention period, or trainer procedure.
+The star technically sits beside the whole section heading, so the complete source text remains above for review. The DD-form paragraphs describe administrative acknowledgments rather than recitation material. DD Form 2982 is completed by trainers; Trainees read and sign DD Form 2983. I found no Army-wide requirement for Trainees to memorize either form number, title, retention period, or trainer procedure.
 
 Scored practice should cover only:
 
