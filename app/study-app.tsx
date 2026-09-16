@@ -3,17 +3,22 @@
 import type canvasConfetti from 'canvas-confetti'
 import clsx from 'clsx'
 import {
+  BookCheck,
   BookOpen,
   CheckCircle2,
   CircleX,
   ClipboardCheck,
   Clock3,
+  HeartHandshake,
   ListChecks,
   Medal,
   Menu,
+  Music,
   PenLine,
   RotateCcw,
+  ScrollText,
   Send,
+  ShieldAlert,
   ShieldCheck,
   Star,
   Target,
@@ -25,24 +30,36 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { Badge } from '@/components/badge'
 import { Button } from '@/components/button'
+import { CustomizeSections } from '@/components/customize-sections'
 import { Divider } from '@/components/divider'
 import { Heading, Subheading } from '@/components/heading'
 import { Input } from '@/components/input'
+import { SectionActions } from '@/components/section-actions'
 import { Text } from '@/components/text'
 import { Textarea } from '@/components/textarea'
 import { getPerfectScoreCelebrationMode, type CelebrationMode } from '@/lib/celebration'
 import { getFieldPlaceholder, getPayGradePlaceholder } from '@/lib/cloze'
-import { gradeModeAnswers, type FieldGrade, type ModeGrade } from '@/lib/grading'
-import { getRankPayGradeFieldId, greenBookSections, type GreenBookSectionId } from '@/lib/green-book-content'
+import { gradeModeAnswers, type FieldGrade, type ModeGrade, type PartGrade } from '@/lib/grading'
+import {
+  getFieldPartAnswerId,
+  getRankPayGradeFieldId,
+  greenBookSections,
+  type GreenBookFieldPart,
+  type GreenBookSectionId,
+} from '@/lib/green-book-content'
+import { getSectionOrder } from '@/lib/section-order'
 import {
   clearAllAnswers,
+  clearSectionAnswers,
   createEmptyStudyState,
+  getActiveSectionIds,
   getAttemptAnswers,
   isAttemptSubmitted,
   loadStudyState,
   markSubmitted,
   retakeMode,
   setAnswer,
+  setSectionIncluded,
   STUDY_MODES,
 } from '@/lib/study-state'
 import { STUDY_STORAGE_KEY, type AnswerMap, type Mode, type StoredStudyState, type StudyField, type StudySection } from '@/lib/study-types'
@@ -55,6 +72,11 @@ const sectionIcons: Record<GreenBookSectionId, LucideIcon> = {
   'special-orders': ClipboardCheck,
   'phonetic-alphabet': PenLine,
   'rank-structure': Medal,
+  'battle-buddy-system': HeartHandshake,
+  'golden-rules': ScrollText,
+  'improper-relationships': ShieldAlert,
+  'national-anthem-army-song': Music,
+  'code-of-conduct': BookCheck,
 }
 
 const modeLabels: Record<Mode, string> = {
@@ -62,9 +84,6 @@ const modeLabels: Record<Mode, string> = {
   hard: 'Hard',
 }
 
-const studySections: readonly StudySection[] = greenBookSections
-const allFields = studySections.flatMap((section) => section.fields)
-const totalFieldCount = allFields.length
 const currentYear = new Date().getFullYear()
 const CELEBRATION_DURATION_MS = 5000
 const CELEBRATION_CONFETTI_Z_INDEX = 100
@@ -355,20 +374,69 @@ function useStoredStudyState(): [StoredStudyState, (updater: (currentState: Stor
   return [state, updateState]
 }
 
+type SectionUiState = {
+  gradeActive: boolean
+  randomized: boolean
+  fieldOrder?: readonly string[]
+}
+
+type SectionUiStateMap = Partial<Record<GreenBookSectionId, SectionUiState>>
+type GradeBySection = Partial<Record<GreenBookSectionId, ModeGrade>>
+
+const defaultSectionUiState: SectionUiState = {
+  gradeActive: false,
+  randomized: false,
+}
+
+function getSectionUiState(states: SectionUiStateMap, sectionId: GreenBookSectionId): SectionUiState {
+  return states[sectionId] ?? defaultSectionUiState
+}
+
+function stripListPrefix(value: string): string {
+  return value.replace(/^\s*(?:(?:[-*•])|(?:\(?\d+\)?[.)]))\s*/u, '').trim()
+}
+
+function countDistinctEnteredLines(answer: string): number {
+  const lines = answer
+    .split(/\r?\n/u)
+    .map(stripListPrefix)
+    .map((line) => line.replace(/\s+/gu, ' ').toLocaleLowerCase('en-US'))
+    .filter(Boolean)
+
+  return new Set(lines).size
+}
+
 function isFieldAnswered(field: StudyField, answers: AnswerMap): boolean {
-  if (field.id.startsWith('rank-')) {
+  if (field.gradingProfile === 'rank-identification') {
     return Boolean(answers[field.id]?.trim() || answers[getRankPayGradeFieldId(field.id)]?.trim())
+  }
+
+  if (field.inputKind === 'composite') {
+    return Boolean(
+      answers[field.id]?.trim() ||
+        field.parts?.some((part) => answers[getFieldPartAnswerId(field.id, part.id)]?.trim()),
+    )
   }
 
   return Boolean(answers[field.id]?.trim())
 }
 
-function countAnsweredFields(fields: readonly StudyField[], answers: AnswerMap): number {
-  return fields.filter((field) => isFieldAnswered(field, answers)).length
+function getAnsweredPoints(fields: readonly StudyField[], answers: AnswerMap): number {
+  return fields.reduce((total, field) => {
+    if (field.inputKind === 'unordered-list' && field.listScoring === 'per-item') {
+      return total + Math.min(field.points, countDistinctEnteredLines(answers[field.id] ?? ''))
+    }
+
+    return total + (isFieldAnswered(field, answers) ? Math.min(1, field.points) : 0)
+  }, 0)
 }
 
-function getSectionGrade(grade: ModeGrade, sectionId: GreenBookSectionId) {
-  return grade.sections.find((section) => section.sectionId === sectionId)
+function getPossiblePoints(fields: readonly StudyField[]): number {
+  return fields.reduce((total, field) => total + field.points, 0)
+}
+
+function getSectionGrade(grade: ModeGrade | null | undefined, sectionId: GreenBookSectionId) {
+  return grade?.sections.find((section) => section.sectionId === sectionId)
 }
 
 function getPercent(value: number, total: number): number {
@@ -377,15 +445,6 @@ function getPercent(value: number, total: number): number {
   }
 
   return Math.round((value / total) * 100)
-}
-
-function shouldUseTextarea(section: StudySection, field: StudyField): boolean {
-  return (
-    section.id === 'soldiers-creed' ||
-    section.id === 'general-orders' ||
-    section.id === 'special-orders' ||
-    field.answer.length > 60
-  )
 }
 
 function isCompactSection(section: StudySection): boolean {
@@ -402,6 +461,22 @@ function getFieldsLayout(section: StudySection): string {
   }
 
   return 'space-y-3'
+}
+
+function isSectionShuffleable(section: StudySection): boolean {
+  const countsByGroup = new Map<string, number>()
+
+  for (const field of section.fields) {
+    const key = field.group ?? '__ungrouped__'
+    countsByGroup.set(key, (countsByGroup.get(key) ?? 0) + 1)
+  }
+
+  return [...countsByGroup.values()].some((count) => count > 1)
+}
+
+function joinDescriptionIds(...ids: Array<string | undefined>): string | undefined {
+  const value = ids.filter(Boolean).join(' ')
+  return value || undefined
 }
 
 function getRankImageAlt(field: StudyField, isSubmitted: boolean): string {
@@ -426,9 +501,33 @@ function FieldStatus({ grade }: { grade?: FieldGrade }) {
     )
   }
 
+  if (grade.possiblePoints > 1) {
+    return (
+      <Badge color="amber" className="shrink-0">
+        {grade.earnedPoints}/{grade.possiblePoints} correct
+      </Badge>
+    )
+  }
+
   return (
     <Badge color="red" className="shrink-0">
       <CircleX className="size-3.5" aria-hidden="true" />
+      Review
+    </Badge>
+  )
+}
+
+function PartStatus({ grade }: { grade?: PartGrade }) {
+  if (!grade) {
+    return null
+  }
+
+  return grade.isCorrect ? (
+    <Badge color="green" className="shrink-0">
+      Correct
+    </Badge>
+  ) : (
+    <Badge color="red" className="shrink-0">
       Review
     </Badge>
   )
@@ -522,24 +621,30 @@ function ProgressBar({
 }
 
 function SectionNav({
+  sections,
   answers,
-  grade,
+  globalGrade,
+  localGrades,
   submitted,
   onNavigate,
 }: {
+  sections: readonly StudySection[]
   answers: AnswerMap
-  grade: ModeGrade | null
+  globalGrade: ModeGrade | null
+  localGrades: GradeBySection
   submitted: boolean
   onNavigate?: () => void
 }) {
   return (
     <nav aria-label="Green Book sections">
       <div className="space-y-2">
-        {studySections.map((section) => {
+        {sections.map((section) => {
           const Icon = sectionIcons[section.id]
-          const sectionGrade = grade ? getSectionGrade(grade, section.id) : undefined
-          const value = submitted ? (sectionGrade?.correctCount ?? 0) : countAnsweredFields(section.fields, answers)
-          const total = section.fields.length
+          const displayedGrade = submitted ? globalGrade : localGrades[section.id]
+          const sectionGrade = getSectionGrade(displayedGrade, section.id)
+          const isGraded = Boolean(sectionGrade)
+          const value = isGraded ? (sectionGrade?.correctCount ?? 0) : getAnsweredPoints(section.fields, answers)
+          const total = sectionGrade?.totalCount ?? getPossiblePoints(section.fields)
 
           return (
             <a
@@ -556,12 +661,12 @@ function SectionNav({
                   <Icon className="size-4 shrink-0 text-green-800" aria-hidden="true" />
                   <span className="truncate text-sm/6 font-semibold text-zinc-950">{section.title}</span>
                 </span>
-                <Badge color={submitted ? 'green' : 'amber'} className="shrink-0">
+                <Badge color={isGraded ? 'green' : 'amber'} className="shrink-0">
                   {value}/{total}
                 </Badge>
               </div>
               <div className="mt-3">
-                <ProgressBar value={value} total={total} submitted={submitted} compact />
+                <ProgressBar value={value} total={total} submitted={isGraded} compact />
               </div>
             </a>
           )
@@ -599,6 +704,37 @@ function Correction({ id, grade }: { id: string; grade?: FieldGrade }) {
     return null
   }
 
+  const wordDifference = grade.targetedFeedback?.firstWordDifference
+
+  if (wordDifference) {
+    const wordNumber = wordDifference.wordIndex + 1
+
+    return (
+      <p id={id} className="mt-3 flex gap-2 text-sm/6 font-medium text-red-700">
+        <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <span>
+          {wordDifference.kind === 'missing' ? (
+            <>
+              First missing word ({wordNumber}):{' '}
+              <span className="font-semibold">{wordDifference.expectedWord}</span>
+            </>
+          ) : wordDifference.kind === 'extra' ? (
+            <>
+              First extra word ({wordNumber}): remove{' '}
+              <span className="font-semibold">{wordDifference.submittedWord}</span>
+            </>
+          ) : (
+            <>
+              First differing word ({wordNumber}): expected{' '}
+              <span className="font-semibold">{wordDifference.expectedWord}</span>; entered{' '}
+              <span className="font-semibold">{wordDifference.submittedWord}</span>
+            </>
+          )}
+        </span>
+      </p>
+    )
+  }
+
   return (
     <p id={id} className="mt-3 flex gap-2 text-sm/6 font-medium text-red-700">
       <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
@@ -609,11 +745,162 @@ function Correction({ id, grade }: { id: string; grade?: FieldGrade }) {
   )
 }
 
+function PartCorrection({ id, grade }: { id: string; grade?: PartGrade }) {
+  if (!grade || grade.isCorrect) {
+    return null
+  }
+
+  return (
+    <p id={id} className="mt-2 flex gap-2 text-sm/6 font-medium text-red-700">
+      <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <span>
+        Correct answer: <span className="font-semibold">{grade.correction}</span>
+      </span>
+    </p>
+  )
+}
+
+function MissingItems({ id, grade }: { id: string; grade?: FieldGrade }) {
+  const closestIncompleteItem = grade?.targetedFeedback?.closestIncompleteListItem
+  const unexpectedItems = grade?.targetedFeedback?.unexpectedListItems
+
+  if (
+    !grade ||
+    grade.isCorrect ||
+    (!grade.missingItems?.length && !closestIncompleteItem && !unexpectedItems?.length)
+  ) {
+    return null
+  }
+
+  return (
+    <div id={id} className="mt-3 flex gap-2 text-sm/6 text-red-700">
+      <CircleX className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+      <div>
+        {grade.missingItems?.length ? (
+          <>
+            <p className="font-semibold">Still missing:</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {grade.missingItems.map((item) => (
+                <li key={item}>{item}</li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+        {closestIncompleteItem ? (
+          <p className={clsx('font-medium', grade.missingItems?.length && 'mt-2')}>
+            Closest incomplete entry: “{closestIncompleteItem.submitted}” — complete it as “
+            {closestIncompleteItem.expected}”
+          </p>
+        ) : null}
+        {unexpectedItems?.length ? (
+          <>
+            <p className={clsx('font-semibold', (grade.missingItems?.length || closestIncompleteItem) && 'mt-2')}>
+              Extra or repeated entries:
+            </p>
+            <ul className="mt-1 list-disc space-y-1 pl-5">
+              {unexpectedItems.map((item, index) => (
+                <li key={`${index}-${item}`}>{item}</li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function PostGradeNote({ id, note, visible }: { id: string; note?: string; visible: boolean }) {
+  if (!visible || !note) {
+    return null
+  }
+
+  return (
+    <p id={id} className="mt-3 rounded-md bg-zinc-100 px-3 py-2 text-sm/6 text-zinc-600">
+      {note}
+    </p>
+  )
+}
+
+function getCardClasses(grade?: FieldGrade, compact = false): string {
+  return clsx(
+    'rounded-lg border bg-white p-4 shadow-sm',
+    compact && 'p-3',
+    grade && !grade.isCorrect && 'border-red-200 bg-red-50/60',
+    grade?.isCorrect && 'border-green-200',
+    !grade && 'border-zinc-200',
+  )
+}
+
+function CompositePartInput({
+  field,
+  part,
+  answer,
+  grade,
+  mode,
+  submitted,
+  onAnswerChange,
+}: {
+  field: StudyField
+  part: GreenBookFieldPart
+  answer: string
+  grade?: PartGrade
+  mode: Mode
+  submitted: boolean
+  onAnswerChange: (fieldId: string, value: string) => void
+}) {
+  const answerId = getFieldPartAnswerId(field.id, part.id)
+  const inputId = `field-${answerId}`
+  const correctionId = `${inputId}-correction`
+  const isWrong = Boolean(grade && !grade.isCorrect)
+  const placeholder = getFieldPlaceholder(part.answer, mode)
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-3">
+        <label htmlFor={inputId} className="text-sm/6 font-semibold text-zinc-700">
+          {part.label}
+        </label>
+        <PartStatus grade={grade} />
+      </div>
+      {part.inputKind === 'textarea' ? (
+        <Textarea
+          id={inputId}
+          value={answer}
+          placeholder={placeholder}
+          readOnly={submitted}
+          invalid={isWrong}
+          aria-describedby={isWrong ? correctionId : undefined}
+          onChange={(event) => onAnswerChange(answerId, event.target.value)}
+          className="mt-2"
+          rows={2}
+          resizable={false}
+        />
+      ) : (
+        <Input
+          id={inputId}
+          type="text"
+          value={answer}
+          placeholder={placeholder}
+          readOnly={submitted}
+          invalid={isWrong}
+          aria-describedby={isWrong ? correctionId : undefined}
+          inputMode={part.inputKind === 'four-digit-year' ? 'numeric' : undefined}
+          maxLength={part.inputKind === 'four-digit-year' ? 4 : undefined}
+          pattern={part.inputKind === 'four-digit-year' ? '[0-9]{4}' : undefined}
+          onChange={(event) => onAnswerChange(answerId, event.target.value)}
+          className="mt-2"
+          autoComplete="off"
+        />
+      )}
+      <PartCorrection id={correctionId} grade={grade} />
+    </div>
+  )
+}
+
 function StudyFieldCard({
   section,
   field,
-  answer,
-  payGradeAnswer,
+  answers,
   grade,
   mode,
   submitted,
@@ -621,42 +908,37 @@ function StudyFieldCard({
 }: {
   section: StudySection
   field: StudyField
-  answer: string
-  payGradeAnswer?: string
+  answers: AnswerMap
   grade?: FieldGrade
   mode: Mode
   submitted: boolean
   onAnswerChange: (fieldId: string, value: string) => void
 }) {
+  const answer = answers[field.id] ?? ''
   const fieldId = `field-${field.id}`
   const correctionId = `${fieldId}-correction`
-  const postGradeNoteId = `${fieldId}-note`
-  const describedBy = grade
-    ? [!grade.isCorrect ? correctionId : undefined, field.postGradeNote ? postGradeNoteId : undefined]
-        .filter(Boolean)
-        .join(' ') || undefined
-    : undefined
+  const missingItemsId = `${fieldId}-missing-items`
+  const noteId = `${fieldId}-note`
+  const isUnorderedList = field.inputKind === 'unordered-list'
+  const feedbackId = isUnorderedList ? missingItemsId : correctionId
+  const describedBy = joinDescriptionIds(
+    grade && !grade.isCorrect ? feedbackId : undefined,
+    grade && field.postGradeNote ? noteId : undefined,
+  )
   const isWrong = Boolean(grade && !grade.isCorrect)
-  const isCorrect = Boolean(grade?.isCorrect)
-  const placeholder = getFieldPlaceholder(field.answer, mode)
+  const placeholder = isUnorderedList && mode === 'hard' ? 'Enter one item per line' : getFieldPlaceholder(field.answer, mode)
 
-  if (section.id === 'rank-structure') {
+  if (field.gradingProfile === 'rank-identification') {
     const payGradeFieldId = getRankPayGradeFieldId(field.id)
     const payGradeInputId = `field-${payGradeFieldId}`
+    const payGradeAnswer = answers[payGradeFieldId] ?? ''
     const isRankNameWrong = Boolean(grade && !grade.rankNameIsCorrect)
     const isRankNameCorrect = Boolean(grade?.rankNameIsCorrect)
     const isPayGradeWrong = Boolean(grade && !grade.payGradeIsCorrect)
     const payGradePlaceholder = getPayGradePlaceholder(field.payGrade, mode)
 
     return (
-      <div
-        className={clsx(
-          'rounded-lg border bg-white p-4 shadow-sm',
-          isWrong && 'border-red-200 bg-red-50/60',
-          isCorrect && 'border-green-200',
-          !grade && 'border-zinc-200',
-        )}
-      >
+      <div className={getCardClasses(grade)}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
           <RankTile field={field} submitted={submitted} />
           <div className="min-w-0 flex-1">
@@ -687,7 +969,7 @@ function StudyFieldCard({
                   <Input
                     id={payGradeInputId}
                     type="text"
-                    value={payGradeAnswer ?? ''}
+                    value={payGradeAnswer}
                     placeholder={payGradePlaceholder}
                     readOnly={submitted}
                     invalid={isPayGradeWrong}
@@ -703,6 +985,7 @@ function StudyFieldCard({
                 </Badge>
               ) : null}
             </div>
+            <PostGradeNote id={noteId} note={field.postGradeNote} visible={Boolean(grade)} />
             <Correction id={correctionId} grade={grade} />
           </div>
         </div>
@@ -710,16 +993,38 @@ function StudyFieldCard({
     )
   }
 
+  if (field.inputKind === 'composite') {
+    return (
+      <div className={getCardClasses(grade)}>
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-sm/6 font-semibold text-zinc-950">{field.prompt}</p>
+          <FieldStatus grade={grade} />
+        </div>
+        <div className="mt-3 grid gap-4 md:grid-cols-2">
+          {(field.parts ?? []).map((part) => {
+            const answerId = getFieldPartAnswerId(field.id, part.id)
+
+            return (
+              <CompositePartInput
+                key={part.id}
+                field={field}
+                part={part}
+                answer={answers[answerId] ?? ''}
+                grade={grade?.partGrades?.find((partGrade) => partGrade.partId === answerId)}
+                mode={mode}
+                submitted={submitted}
+                onAnswerChange={onAnswerChange}
+              />
+            )
+          })}
+        </div>
+        <PostGradeNote id={noteId} note={field.postGradeNote} visible={Boolean(grade)} />
+      </div>
+    )
+  }
+
   return (
-    <div
-      className={clsx(
-        'rounded-lg border bg-white p-4 shadow-sm',
-        isCompactSection(section) && 'p-3',
-        isWrong && 'border-red-200 bg-red-50/60',
-        isCorrect && 'border-green-200',
-        !grade && 'border-zinc-200',
-      )}
-    >
+    <div className={getCardClasses(grade, isCompactSection(section))}>
       <div className="flex items-start justify-between gap-3">
         <label htmlFor={fieldId} className="text-sm/6 font-semibold text-zinc-950">
           {field.prompt}
@@ -727,7 +1032,7 @@ function StudyFieldCard({
         <FieldStatus grade={grade} />
       </div>
 
-      {shouldUseTextarea(section, field) ? (
+      {field.inputKind === 'textarea' || isUnorderedList ? (
         <Textarea
           id={fieldId}
           value={answer}
@@ -737,7 +1042,7 @@ function StudyFieldCard({
           aria-describedby={describedBy}
           onChange={(event) => onAnswerChange(field.id, event.target.value)}
           className="mt-3"
-          rows={section.id === 'general-orders' ? 3 : 2}
+          rows={field.rowCount ?? (section.id === 'general-orders' ? 3 : 2)}
           resizable={false}
         />
       ) : (
@@ -749,19 +1054,158 @@ function StudyFieldCard({
           readOnly={submitted}
           invalid={isWrong}
           aria-describedby={describedBy}
+          inputMode={field.inputKind === 'four-digit-year' ? 'numeric' : undefined}
+          maxLength={field.inputKind === 'four-digit-year' ? 4 : undefined}
+          pattern={field.inputKind === 'four-digit-year' ? '[0-9]{4}' : undefined}
           onChange={(event) => onAnswerChange(field.id, event.target.value)}
           className="mt-3"
           autoComplete="off"
         />
       )}
 
-      {grade && field.postGradeNote ? (
-        <p id={postGradeNoteId} className="mt-3 text-sm/6 text-zinc-600">
-          {field.postGradeNote}
-        </p>
-      ) : null}
+      <PostGradeNote id={noteId} note={field.postGradeNote} visible={Boolean(grade)} />
+      {isUnorderedList ? (
+        <MissingItems id={missingItemsId} grade={grade} />
+      ) : (
+        <Correction id={correctionId} grade={grade} />
+      )}
+    </div>
+  )
+}
 
-      <Correction id={correctionId} grade={grade} />
+function StudyContext({ section }: { section: StudySection }) {
+  if (!section.context?.length) {
+    return null
+  }
+
+  return (
+    <details className="mb-5 overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <summary className="cursor-pointer px-4 py-3 text-sm/6 font-semibold text-zinc-800 transition hover:bg-zinc-50 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-green-800">
+        Study context
+      </summary>
+      <div className="space-y-4 border-t border-zinc-200 px-4 py-3 text-sm/6 text-zinc-600">
+        {section.context.map((block) => (
+          <div key={block.id}>
+            {block.title ? <p className="font-semibold text-zinc-800">{block.title}</p> : null}
+            <div className={clsx('space-y-3', block.title && 'mt-1')}>
+              {block.text.split(/\n{2,}/u).map((paragraph, index) => (
+                <p key={`${block.id}-${index}`}>{paragraph}</p>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </details>
+  )
+}
+
+function StudyFieldList({
+  section,
+  fields,
+  answers,
+  grade,
+  mode,
+  submitted,
+  onAnswerChange,
+}: {
+  section: StudySection
+  fields: readonly StudyField[]
+  answers: AnswerMap
+  grade: ModeGrade | null
+  mode: Mode
+  submitted: boolean
+  onAnswerChange: (fieldId: string, value: string) => void
+}) {
+  return (
+    <div className={getFieldsLayout(section)}>
+      {fields.map((field) => (
+        <StudyFieldCard
+          key={field.id}
+          section={section}
+          field={field}
+          answers={answers}
+          grade={grade?.fieldsById[field.id]}
+          mode={mode}
+          submitted={submitted}
+          onAnswerChange={onAnswerChange}
+        />
+      ))}
+    </div>
+  )
+}
+
+function GroupedStudyFields({
+  section,
+  fields,
+  answers,
+  grade,
+  mode,
+  submitted,
+  onAnswerChange,
+}: {
+  section: StudySection
+  fields: readonly StudyField[]
+  answers: AnswerMap
+  grade: ModeGrade | null
+  mode: Mode
+  submitted: boolean
+  onAnswerChange: (fieldId: string, value: string) => void
+}) {
+  if (!section.groups?.length) {
+    return (
+      <StudyFieldList
+        section={section}
+        fields={fields}
+        answers={answers}
+        grade={grade}
+        mode={mode}
+        submitted={submitted}
+        onAnswerChange={onAnswerChange}
+      />
+    )
+  }
+
+  const ungroupedFields = fields.filter((field) => !field.group)
+
+  return (
+    <div className="space-y-8">
+      {ungroupedFields.length > 0 ? (
+        <StudyFieldList
+          section={section}
+          fields={ungroupedFields}
+          answers={answers}
+          grade={grade}
+          mode={mode}
+          submitted={submitted}
+          onAnswerChange={onAnswerChange}
+        />
+      ) : null}
+      {section.groups.map((group) => {
+        const groupFields = fields.filter((field) => field.group === group.id)
+
+        if (groupFields.length === 0) {
+          return null
+        }
+
+        const headingId = `${section.id}-${group.id}-heading`
+
+        return (
+          <section key={group.id} aria-labelledby={headingId}>
+            <Subheading id={headingId} level={3} className="mb-3 text-zinc-800">
+              {group.title}
+            </Subheading>
+            <StudyFieldList
+              section={section}
+              fields={groupFields}
+              answers={answers}
+              grade={grade}
+              mode={mode}
+              submitted={submitted}
+              onAnswerChange={onAnswerChange}
+            />
+          </section>
+        )
+      })}
     </div>
   )
 }
@@ -770,25 +1214,54 @@ function StudySectionPanel({
   section,
   answers,
   grade,
+  gradeActive,
+  randomized,
+  fieldOrder,
   mode,
   submitted,
   onAnswerChange,
+  onToggleGrade,
+  onToggleRandomize,
+  onClear,
 }: {
   section: StudySection
   answers: AnswerMap
   grade: ModeGrade | null
+  gradeActive: boolean
+  randomized: boolean
+  fieldOrder?: readonly string[]
   mode: Mode
   submitted: boolean
   onAnswerChange: (fieldId: string, value: string) => void
+  onToggleGrade: () => void
+  onToggleRandomize: () => void
+  onClear: () => void
 }) {
   const Icon = sectionIcons[section.id]
-  const sectionGrade = grade ? getSectionGrade(grade, section.id) : undefined
-  const answeredCount = countAnsweredFields(section.fields, answers)
-  const value = submitted ? (sectionGrade?.correctCount ?? 0) : answeredCount
+  const sectionGrade = getSectionGrade(grade, section.id)
+  const answeredPoints = getAnsweredPoints(section.fields, answers)
+  const value = sectionGrade ? sectionGrade.correctCount : answeredPoints
+  const total = sectionGrade?.totalCount ?? getPossiblePoints(section.fields)
+  const isGraded = Boolean(sectionGrade)
+  const shuffleable = isSectionShuffleable(section)
+  const orderedFields = useMemo(() => {
+    if (!randomized || !fieldOrder?.length) {
+      return section.fields
+    }
+
+    const fieldsById = new Map(section.fields.map((field) => [field.id, field]))
+    const ordered = fieldOrder.flatMap((fieldId) => {
+      const field = fieldsById.get(fieldId)
+      return field ? [field] : []
+    })
+    const includedIds = new Set(ordered.map((field) => field.id))
+
+    return [...ordered, ...section.fields.filter((field) => !includedIds.has(field.id))]
+  }, [fieldOrder, randomized, section.fields])
 
   return (
     <section id={section.id} className="scroll-mt-40">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-green-800/15 bg-green-800/10 text-green-900">
@@ -799,30 +1272,37 @@ function StudySectionPanel({
             </Subheading>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <Badge color={submitted ? 'green' : 'amber'}>
-            {submitted ? 'Score' : 'Answered'} {value}/{section.fields.length}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <Badge color={isGraded ? 'green' : 'amber'}>
+            {isGraded ? 'Score' : 'Answered'} {value}/{total}
           </Badge>
+          <SectionActions
+            title={section.title}
+            randomized={randomized}
+            gradeActive={submitted || gradeActive}
+            randomizeDisabled={!shuffleable}
+            randomizeDisabledReason="This section has no set of questions that can be shuffled."
+            gradeDisabled={submitted}
+            gradeDisabledReason="The full attempt has already been graded."
+            canClear={!submitted && answeredPoints > 0}
+            onToggleRandomize={onToggleRandomize}
+            onToggleGrade={onToggleGrade}
+            onConfirmClear={onClear}
+          />
         </div>
       </div>
 
       <Divider className="my-4" />
-
-      <div className={getFieldsLayout(section)}>
-        {section.fields.map((field) => (
-          <StudyFieldCard
-            key={field.id}
-            section={section}
-            field={field}
-            answer={answers[field.id] ?? ''}
-            payGradeAnswer={answers[getRankPayGradeFieldId(field.id)] ?? ''}
-            grade={submitted ? grade?.fieldsById[field.id] : undefined}
-            mode={mode}
-            submitted={submitted}
-            onAnswerChange={onAnswerChange}
-          />
-        ))}
-      </div>
+      <StudyContext section={section} />
+      <GroupedStudyFields
+        section={section}
+        fields={orderedFields}
+        answers={answers}
+        grade={grade}
+        mode={mode}
+        submitted={submitted}
+        onAnswerChange={onAnswerChange}
+      />
     </section>
   )
 }
@@ -831,6 +1311,7 @@ export function StudyApp() {
   const [state, setState] = useStoredStudyState()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [celebration, setCelebration] = useState<CelebrationState | null>(null)
+  const [sectionUiStates, setSectionUiStates] = useState<SectionUiStateMap>({})
   const celebrationIntervalRef = useRef<number | null>(null)
   const celebrationTimeoutRef = useRef<number | null>(null)
   const celebrationIdRef = useRef(0)
@@ -838,10 +1319,34 @@ export function StudyApp() {
   const mode = state.mode
   const answers = getAttemptAnswers(state)
   const submitted = isAttemptSubmitted(state)
-  const grade = useMemo(() => (submitted ? gradeModeAnswers(studySections, answers, mode) : null), [answers, mode, submitted])
-  const answeredCount = useMemo(() => countAnsweredFields(allFields, answers), [answers])
-  const headerValue = submitted ? (grade?.correctCount ?? 0) : answeredCount
-  const headerTotal = submitted ? (grade?.totalCount ?? totalFieldCount) : totalFieldCount
+  const activeSectionIds = useMemo(() => getActiveSectionIds(state), [state])
+  const activeSections = useMemo(() => {
+    const activeIds = new Set(activeSectionIds)
+    return greenBookSections.filter((section) => activeIds.has(section.id))
+  }, [activeSectionIds])
+  const activeFields = useMemo(() => activeSections.flatMap((section) => section.fields), [activeSections])
+  const grade = useMemo(
+    () => (submitted ? gradeModeAnswers(activeSections, answers, mode) : null),
+    [activeSections, answers, mode, submitted],
+  )
+  const localGrades = useMemo<GradeBySection>(() => {
+    if (submitted) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      activeSections.flatMap((section) => {
+        const sectionState = getSectionUiState(sectionUiStates, section.id)
+        return sectionState.gradeActive
+          ? [[section.id, gradeModeAnswers([section], answers, mode)] as const]
+          : []
+      }),
+    ) as GradeBySection
+  }, [activeSections, answers, mode, sectionUiStates, submitted])
+  const answeredPoints = useMemo(() => getAnsweredPoints(activeFields, answers), [activeFields, answers])
+  const possiblePoints = useMemo(() => getPossiblePoints(activeFields), [activeFields])
+  const headerValue = submitted ? (grade?.correctCount ?? 0) : answeredPoints
+  const headerTotal = submitted ? (grade?.totalCount ?? possiblePoints) : possiblePoints
   const mobileMenuId = 'green-book-mobile-menu'
 
   const clearCelebrationTimers = useCallback(() => {
@@ -911,8 +1416,62 @@ export function StudyApp() {
     })
   }
 
+  function handleSectionIncluded(sectionId: GreenBookSectionId, included: boolean) {
+    setState((currentState) => setSectionIncluded(currentState, sectionId, included))
+
+    if (!included) {
+      setSectionUiStates((currentStates) => {
+        const nextStates = { ...currentStates }
+        delete nextStates[sectionId]
+        return nextStates
+      })
+    }
+  }
+
+  function handleToggleSectionGrade(sectionId: GreenBookSectionId) {
+    if (submitted) {
+      return
+    }
+
+    setSectionUiStates((currentStates) => {
+      const currentSectionState = getSectionUiState(currentStates, sectionId)
+
+      return {
+        ...currentStates,
+        [sectionId]: {
+          ...currentSectionState,
+          gradeActive: !currentSectionState.gradeActive,
+        },
+      }
+    })
+  }
+
+  function handleToggleSectionRandomization(section: StudySection) {
+    setSectionUiStates((currentStates) => {
+      const currentSectionState = getSectionUiState(currentStates, section.id)
+      const randomized = !currentSectionState.randomized
+
+      return {
+        ...currentStates,
+        [section.id]: {
+          ...currentSectionState,
+          randomized,
+          fieldOrder: randomized ? getSectionOrder(section.fields, true) : undefined,
+        },
+      }
+    })
+  }
+
+  function handleClearSection(section: StudySection) {
+    if (submitted) {
+      return
+    }
+
+    setState((currentState) => clearSectionAnswers(currentState, section))
+  }
+
   function handleSubmit() {
-    const submittedGrade = gradeModeAnswers(studySections, answers, mode)
+    const submittedGrade = gradeModeAnswers(activeSections, answers, mode)
     const celebrationMode = getPerfectScoreCelebrationMode(submittedGrade)
 
     if (celebrationMode) {
@@ -923,10 +1482,12 @@ export function StudyApp() {
   }
 
   function handleRetake() {
+    setSectionUiStates({})
     setState((currentState) => retakeMode(currentState, currentState.mode))
   }
 
   function handleClearAll() {
+    setSectionUiStates({})
     setState((currentState) => clearAllAnswers(currentState))
   }
 
@@ -984,6 +1545,14 @@ export function StudyApp() {
                   </div>
                 </div>
 
+                {!submitted ? (
+                  <CustomizeSections
+                    sections={greenBookSections}
+                    selectedSectionIds={state.selectedSectionIds}
+                    onToggle={handleSectionIncluded}
+                  />
+                ) : null}
+
                 <div className={clsx('grid gap-2', !submitted && 'sm:grid-cols-2')}>
                   {submitted ? (
                     <Button outline onClick={handleRetake}>
@@ -1005,8 +1574,10 @@ export function StudyApp() {
                 </div>
 
                 <SectionNav
+                  sections={activeSections}
                   answers={answers}
-                  grade={grade}
+                  globalGrade={grade}
+                  localGrades={localGrades}
                   submitted={submitted}
                   onNavigate={() => setIsMobileMenuOpen(false)}
                 />
@@ -1018,7 +1589,7 @@ export function StudyApp() {
             <div className="min-w-0">
               <Heading level={2}>Green Book Study Guide</Heading>
               <Text className="mt-1 max-w-2xl">
-                Army Values, Soldier&apos;s Creed, Military Time, Orders, Phonetic Alphabet, and Rank Structure.
+                Customize your sections, then practice Green Book material in Easy or Hard mode.
               </Text>
             </div>
 
@@ -1071,7 +1642,20 @@ export function StudyApp() {
                 <Subheading>Sections</Subheading>
               </div>
             </div>
-            <SectionNav answers={answers} grade={grade} submitted={submitted} />
+            <SectionNav
+              sections={activeSections}
+              answers={answers}
+              globalGrade={grade}
+              localGrades={localGrades}
+              submitted={submitted}
+            />
+            {!submitted ? (
+              <CustomizeSections
+                sections={greenBookSections}
+                selectedSectionIds={state.selectedSectionIds}
+                onToggle={handleSectionIncluded}
+              />
+            ) : null}
             <div className="rounded-lg border border-amber-500/25 bg-amber-50 p-3 text-sm/6 text-amber-900">
               <div className="flex items-center gap-2 font-semibold">
                 <Star className="size-4" aria-hidden="true" />
@@ -1083,17 +1667,28 @@ export function StudyApp() {
 
         <div className="min-w-0">
           <div className="space-y-12">
-            {studySections.map((section) => (
-              <StudySectionPanel
-                key={section.id}
-                section={section}
-                answers={answers}
-                grade={grade}
-                mode={mode}
-                submitted={submitted}
-                onAnswerChange={handleAnswerChange}
-              />
-            ))}
+            {activeSections.map((section) => {
+              const sectionState = getSectionUiState(sectionUiStates, section.id)
+              const displayedGrade = submitted ? grade : (localGrades[section.id] ?? null)
+
+              return (
+                <StudySectionPanel
+                  key={section.id}
+                  section={section}
+                  answers={answers}
+                  grade={displayedGrade}
+                  gradeActive={sectionState.gradeActive}
+                  randomized={sectionState.randomized}
+                  fieldOrder={sectionState.fieldOrder}
+                  mode={mode}
+                  submitted={submitted}
+                  onAnswerChange={handleAnswerChange}
+                  onToggleGrade={() => handleToggleSectionGrade(section.id)}
+                  onToggleRandomize={() => handleToggleSectionRandomization(section)}
+                  onClear={() => handleClearSection(section)}
+                />
+              )
+            })}
           </div>
         </div>
       </div>

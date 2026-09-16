@@ -1,6 +1,49 @@
+import {
+  DEFAULT_SECTION_IDS,
+  getFieldPartAnswerId,
+  getRankPayGradeFieldId,
+  greenBookSections,
+  type GreenBookSection,
+  type GreenBookSectionId,
+} from './green-book-content'
 import { STUDY_STORAGE_KEY, type AnswerMap, type Mode, type StoredStudyState } from './study-types'
 
 const MODES: readonly Mode[] = ['easy', 'hard']
+const CANONICAL_SECTION_IDS = greenBookSections.map((section) => section.id)
+const KNOWN_SECTION_IDS = new Set<GreenBookSectionId>(CANONICAL_SECTION_IDS)
+const CONFIGURED_DEFAULT_SECTION_IDS = new Set<GreenBookSectionId>(DEFAULT_SECTION_IDS)
+const NORMALIZED_DEFAULT_SECTION_IDS = CANONICAL_SECTION_IDS.filter((sectionId) =>
+  CONFIGURED_DEFAULT_SECTION_IDS.has(sectionId),
+)
+
+function getDefaultSectionIds(): GreenBookSectionId[] {
+  if (NORMALIZED_DEFAULT_SECTION_IDS.length > 0) {
+    return [...NORMALIZED_DEFAULT_SECTION_IDS]
+  }
+
+  // Keep the state usable even if a future content edit accidentally exports an empty default list.
+  return CANONICAL_SECTION_IDS.slice(0, 1)
+}
+
+function readSectionIds(value: unknown): GreenBookSectionId[] {
+  if (!Array.isArray(value)) {
+    return getDefaultSectionIds()
+  }
+
+  const requestedSectionIds = new Set(
+    value.filter(
+      (sectionId): sectionId is GreenBookSectionId =>
+        typeof sectionId === 'string' && KNOWN_SECTION_IDS.has(sectionId as GreenBookSectionId),
+    ),
+  )
+  const sectionIds = CANONICAL_SECTION_IDS.filter((sectionId) => requestedSectionIds.has(sectionId))
+
+  return sectionIds.length > 0 ? sectionIds : getDefaultSectionIds()
+}
+
+function sectionIdsMatch(left: readonly GreenBookSectionId[], right: readonly GreenBookSectionId[]): boolean {
+  return left.length === right.length && left.every((sectionId, index) => sectionId === right[index])
+}
 
 function isMode(value: unknown): value is Mode {
   return value === 'easy' || value === 'hard'
@@ -74,11 +117,14 @@ function readStoredState(value: unknown): StoredStudyState {
   const state = value as Partial<StoredStudyState>
   const mode = isMode(state.mode) ? state.mode : 'easy'
   const answers = readAnswerMap(state.answers)
+  const isSubmitted = typeof state.isSubmitted === 'boolean' ? state.isSubmitted : readLegacySubmitted(value)
 
   return {
     mode,
     answers: Object.keys(answers).length > 0 ? answers : readLegacySharedAnswers(value, mode),
-    isSubmitted: typeof state.isSubmitted === 'boolean' ? state.isSubmitted : readLegacySubmitted(value),
+    isSubmitted,
+    selectedSectionIds: readSectionIds(state.selectedSectionIds),
+    submittedSectionIds: isSubmitted ? readSectionIds(state.submittedSectionIds) : null,
   }
 }
 
@@ -87,6 +133,8 @@ export function createEmptyStudyState(mode: Mode = 'easy'): StoredStudyState {
     mode,
     answers: {},
     isSubmitted: false,
+    selectedSectionIds: getDefaultSectionIds(),
+    submittedSectionIds: null,
   }
 }
 
@@ -132,11 +180,49 @@ export function setAnswer(state: StoredStudyState, mode: Mode, fieldId: string, 
   }
 }
 
+export function setSectionIncluded(
+  state: StoredStudyState,
+  sectionId: GreenBookSectionId,
+  included: boolean,
+): StoredStudyState {
+  if (state.isSubmitted || !KNOWN_SECTION_IDS.has(sectionId)) {
+    return state
+  }
+
+  const selectedSectionIds = readSectionIds(state.selectedSectionIds)
+  const isCurrentlyIncluded = selectedSectionIds.includes(sectionId)
+
+  if (included === isCurrentlyIncluded) {
+    return sectionIdsMatch(state.selectedSectionIds, selectedSectionIds)
+      ? state
+      : { ...state, selectedSectionIds }
+  }
+
+  if (!included && selectedSectionIds.length === 1) {
+    return state
+  }
+
+  const nextSectionIds = included
+    ? [...selectedSectionIds, sectionId]
+    : selectedSectionIds.filter((selectedSectionId) => selectedSectionId !== sectionId)
+
+  return {
+    ...state,
+    selectedSectionIds: readSectionIds(nextSectionIds),
+  }
+}
+
 export function markSubmitted(state: StoredStudyState, mode: Mode): StoredStudyState {
+  if (state.isSubmitted) {
+    return state.mode === mode ? state : { ...state, mode }
+  }
+
   return {
     ...state,
     mode,
     isSubmitted: true,
+    selectedSectionIds: getDefaultSectionIds(),
+    submittedSectionIds: readSectionIds(state.selectedSectionIds),
   }
 }
 
@@ -146,6 +232,8 @@ export function retakeMode(state: StoredStudyState, mode: Mode): StoredStudyStat
     mode,
     answers: {},
     isSubmitted: false,
+    selectedSectionIds: getDefaultSectionIds(),
+    submittedSectionIds: null,
   }
 }
 
@@ -154,6 +242,26 @@ export function clearAllAnswers(state: StoredStudyState): StoredStudyState {
     ...state,
     answers: {},
     isSubmitted: false,
+    selectedSectionIds: getDefaultSectionIds(),
+    submittedSectionIds: null,
+  }
+}
+
+export function clearSectionAnswers(state: StoredStudyState, section: GreenBookSection): StoredStudyState {
+  const answers = { ...state.answers }
+
+  for (const field of section.fields) {
+    delete answers[field.id]
+    delete answers[getRankPayGradeFieldId(field.id)]
+
+    for (const part of field.parts ?? []) {
+      delete answers[getFieldPartAnswerId(field.id, part.id)]
+    }
+  }
+
+  return {
+    ...state,
+    answers,
   }
 }
 
@@ -163,6 +271,10 @@ export function getAttemptAnswers(state: StoredStudyState): AnswerMap {
 
 export function isAttemptSubmitted(state: StoredStudyState): boolean {
   return state.isSubmitted
+}
+
+export function getActiveSectionIds(state: StoredStudyState): GreenBookSectionId[] {
+  return state.isSubmitted ? readSectionIds(state.submittedSectionIds) : readSectionIds(state.selectedSectionIds)
 }
 
 export { MODES as STUDY_MODES }

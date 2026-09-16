@@ -1,11 +1,37 @@
-import { getRankPayGradeFieldId } from './green-book-content'
+import { getFieldPartAnswerId, getRankPayGradeFieldId } from './green-book-content'
 import type { AnswerMap, Mode, StudyField, StudySection } from './study-types'
+
+export type PartGrade = {
+  partId: string
+  answer: string
+  isCorrect: boolean
+  correction: string
+}
+
+export type FieldTargetedFeedback = {
+  closestIncompleteListItem?: {
+    submitted: string
+    expected: string
+  }
+  firstWordDifference?: {
+    kind: 'missing' | 'different' | 'extra'
+    wordIndex: number
+    expectedWord?: string
+    submittedWord?: string
+  }
+  unexpectedListItems?: readonly string[]
+}
 
 export type FieldGrade = {
   fieldId: string
   answer: string
   isCorrect: boolean
   correction: string
+  earnedPoints: number
+  possiblePoints: number
+  targetedFeedback?: FieldTargetedFeedback
+  partGrades?: readonly PartGrade[]
+  missingItems?: readonly string[]
   rankNameIsCorrect?: boolean
   payGradeAnswer?: string
   payGradeIsCorrect?: boolean
@@ -69,36 +95,13 @@ function hasNonWhitespacePunctuation(answer: string): boolean {
   return /[^\p{L}\p{N}\s]/u.test(answer)
 }
 
-function isArmyValuesField(field: StudyField): boolean {
-  return field.id.startsWith('army-values-')
+type AnswerSpec = {
+  answer: string
+  aliases?: readonly string[]
 }
 
-function isSoldiersCreedField(field: StudyField): boolean {
-  return field.id.startsWith('soldiers-creed-')
-}
-
-function isMilitaryTimeField(field: StudyField): boolean {
-  return field.id.startsWith('military-time-')
-}
-
-function isGeneralOrdersField(field: StudyField): boolean {
-  return field.id.startsWith('general-order-')
-}
-
-function isSpecialOrdersField(field: StudyField): boolean {
-  return field.id.startsWith('special-orders-')
-}
-
-function isPhoneticAlphabetField(field: StudyField): boolean {
-  return field.id.startsWith('phonetic-')
-}
-
-function isRankField(field: StudyField): boolean {
-  return field.id.startsWith('rank-')
-}
-
-function getAcceptedAnswers(field: StudyField): readonly string[] {
-  return [field.answer, ...(field.aliases ?? [])]
+function getAcceptedAnswers(answerSpec: AnswerSpec): readonly string[] {
+  return [answerSpec.answer, ...(answerSpec.aliases ?? [])]
 }
 
 function gradeArmyValue(field: StudyField, answer: string): boolean {
@@ -122,21 +125,25 @@ function gradeArmyValue(field: StudyField, answer: string): boolean {
 }
 
 function gradeLooseText(field: StudyField, answer: string): boolean {
+  return gradeLooseAnswer(field, answer)
+}
+
+function gradeLooseAnswer(answerSpec: AnswerSpec, answer: string): boolean {
   const normalizedAnswer = normalizeWithoutWhitespaceOrPunctuation(answer)
 
   if (!normalizedAnswer) {
     return false
   }
 
-  return getAcceptedAnswers(field).some((acceptedAnswer) => {
+  return getAcceptedAnswers(answerSpec).some((acceptedAnswer) => {
     return normalizeWithoutWhitespaceOrPunctuation(acceptedAnswer) === normalizedAnswer
   })
 }
 
 function gradeMilitaryTime(field: StudyField, answer: string): boolean {
-  const normalizedAnswer = normalizeTypography(answer)
+  const normalizedAnswer = normalizeTypography(answer).trim().replace(/\s+/gu, ' ').toLocaleLowerCase('en-US')
 
-  return [field.answer, `${field.answer}Z`, `${field.answer} hours`, `${field.answer} hrs`].includes(normalizedAnswer)
+  return [field.answer, `${field.answer}z`, `${field.answer} hours`, `${field.answer} hrs`].includes(normalizedAnswer)
 }
 
 function gradePhoneticAlphabet(field: StudyField, answer: string): boolean {
@@ -287,17 +294,361 @@ function gradeText(field: StudyField, answer: string): boolean {
   return getAcceptedAnswers(field).some((acceptedAnswer) => normalizeAnswer(acceptedAnswer) === normalizedAnswer)
 }
 
-export function gradeField(field: StudyField, answer: string, payGradeAnswer = ''): FieldGrade {
-  if (isRankField(field)) {
-    const rankNameIsCorrect = gradeRank(field, answer)
-    const payGradeIsCorrect = gradePayGrade(field, payGradeAnswer)
-    const payGradeCorrection = field.payGrade ?? ''
+function gradeFourDigitYear(answerSpec: AnswerSpec, answer: string): boolean {
+  const normalizedAnswer = normalizeTypography(answer).trim()
+
+  if (!/^\d{4}$/u.test(normalizedAnswer)) {
+    return false
+  }
+
+  return getAcceptedAnswers(answerSpec).some((acceptedAnswer) => acceptedAnswer === normalizedAnswer)
+}
+
+function gradeAnswerSpec(answerSpec: AnswerSpec, inputKind: string, answer: string): boolean {
+  return inputKind === 'four-digit-year'
+    ? gradeFourDigitYear(answerSpec, answer)
+    : gradeLooseAnswer(answerSpec, answer)
+}
+
+function stripOptionalListPrefix(answer: string): string {
+  return answer.replace(/^\s*(?:(?:[-*•])|(?:\(?\d+\)?[.)]))\s*/u, '').trim()
+}
+
+type FeedbackWord = {
+  normalized: string
+  display: string
+}
+
+function getFeedbackWords(answer: string): FeedbackWord[] {
+  return normalizeTypography(answer)
+    .replace(/'/gu, '')
+    .split(/[^\p{L}\p{N}]+/gu)
+    .filter(Boolean)
+    .map((word) => ({
+      normalized: word.toLocaleLowerCase('en-US'),
+      display: word,
+    }))
+}
+
+function getWordEditDistances(expected: readonly FeedbackWord[], submitted: readonly FeedbackWord[]): number[][] {
+  const distances = Array.from({ length: expected.length + 1 }, () =>
+    Array.from({ length: submitted.length + 1 }, () => 0),
+  )
+
+  for (let expectedIndex = expected.length; expectedIndex >= 0; expectedIndex -= 1) {
+    for (let submittedIndex = submitted.length; submittedIndex >= 0; submittedIndex -= 1) {
+      if (expectedIndex === expected.length) {
+        distances[expectedIndex]![submittedIndex] = submitted.length - submittedIndex
+      } else if (submittedIndex === submitted.length) {
+        distances[expectedIndex]![submittedIndex] = expected.length - expectedIndex
+      } else if (expected[expectedIndex]?.normalized === submitted[submittedIndex]?.normalized) {
+        distances[expectedIndex]![submittedIndex] = distances[expectedIndex + 1]![submittedIndex + 1]!
+      } else {
+        distances[expectedIndex]![submittedIndex] =
+          1 +
+          Math.min(
+            distances[expectedIndex + 1]![submittedIndex + 1]!,
+            distances[expectedIndex + 1]![submittedIndex]!,
+            distances[expectedIndex]![submittedIndex + 1]!,
+          )
+      }
+    }
+  }
+
+  return distances
+}
+
+function getWordEditDistance(expected: string, submitted: string): number {
+  const expectedWords = getFeedbackWords(expected)
+  const submittedWords = getFeedbackWords(submitted)
+  return getWordEditDistances(expectedWords, submittedWords)[0]![0]!
+}
+
+function getWordSimilarity(expected: string, submitted: string): number {
+  const expectedLength = getFeedbackWords(expected).length
+  const submittedLength = getFeedbackWords(submitted).length
+  const longestLength = Math.max(expectedLength, submittedLength)
+
+  if (longestLength === 0) {
+    return 0
+  }
+
+  return 1 - getWordEditDistance(expected, submitted) / longestLength
+}
+
+function getFirstWordDifference(answerSpec: AnswerSpec, answer: string) {
+  const submittedWords = getFeedbackWords(answer)
+  const acceptedCandidates = getAcceptedAnswers(answerSpec).map((acceptedAnswer) => {
+    const expectedWords = getFeedbackWords(acceptedAnswer)
+    const distances = getWordEditDistances(expectedWords, submittedWords)
+    return { expectedWords, distances, distance: distances[0]![0]! }
+  })
+  const closestCandidate = acceptedCandidates.reduce((closest, candidate) => {
+    return candidate.distance < closest.distance ? candidate : closest
+  })
+  const { expectedWords, distances } = closestCandidate
+  let expectedIndex = 0
+  let submittedIndex = 0
+
+  while (
+    expectedWords[expectedIndex]?.normalized === submittedWords[submittedIndex]?.normalized &&
+    expectedIndex < expectedWords.length &&
+    submittedIndex < submittedWords.length
+  ) {
+    expectedIndex += 1
+    submittedIndex += 1
+  }
+
+  if (expectedIndex === expectedWords.length) {
+    return submittedIndex < submittedWords.length
+      ? {
+          kind: 'extra' as const,
+          wordIndex: expectedIndex,
+          submittedWord: submittedWords[submittedIndex]?.display,
+        }
+      : undefined
+  }
+
+  if (submittedIndex === submittedWords.length) {
+    return {
+      kind: 'missing' as const,
+      wordIndex: expectedIndex,
+      expectedWord: expectedWords[expectedIndex]?.display,
+    }
+  }
+
+  const substitutionDistance = distances[expectedIndex + 1]![submittedIndex + 1]!
+  const missingDistance = distances[expectedIndex + 1]![submittedIndex]!
+  const extraDistance = distances[expectedIndex]![submittedIndex + 1]!
+
+  if (substitutionDistance <= missingDistance && substitutionDistance <= extraDistance) {
+    return {
+      kind: 'different' as const,
+      wordIndex: expectedIndex,
+      expectedWord: expectedWords[expectedIndex]?.display,
+      submittedWord: submittedWords[submittedIndex]?.display,
+    }
+  }
+
+  if (missingDistance <= extraDistance) {
+    return {
+      kind: 'missing' as const,
+      wordIndex: expectedIndex,
+      expectedWord: expectedWords[expectedIndex]?.display,
+    }
+  }
+
+  return {
+    kind: 'extra' as const,
+    wordIndex: expectedIndex,
+    submittedWord: submittedWords[submittedIndex]?.display,
+  }
+}
+
+function gradeUnorderedList(field: StudyField, answer: string): FieldGrade {
+  const items = field.items ?? []
+  const submittedItems = normalizeTypography(answer)
+    .split(/\r?\n/u)
+    .map(stripOptionalListPrefix)
+    .filter(Boolean)
+  const unmatchedItemIndexes = new Set(items.map((_, index) => index))
+  const matchesByItemIndex = new Map<number, string>()
+  const unmatchedSubmittedItems: string[] = []
+
+  for (const submittedItem of submittedItems) {
+    const matchingItemIndex = items.findIndex((item, index) => {
+      return unmatchedItemIndexes.has(index) && gradeLooseAnswer(item, submittedItem)
+    })
+
+    if (matchingItemIndex >= 0) {
+      unmatchedItemIndexes.delete(matchingItemIndex)
+      matchesByItemIndex.set(matchingItemIndex, submittedItem)
+    } else {
+      unmatchedSubmittedItems.push(submittedItem)
+    }
+  }
+
+  const matchedCount = items.length - unmatchedItemIndexes.size
+  const exactListMatch = matchedCount === items.length && items.length > 0 && unmatchedSubmittedItems.length === 0
+  const earnedPoints =
+    field.listScoring === 'all-or-nothing'
+      ? exactListMatch
+        ? field.points
+        : 0
+      : Math.min(field.points, matchedCount)
+  const partGrades = items.map((item, index) => ({
+    partId: `${field.id}:item:${item.id}`,
+    answer: matchesByItemIndex.get(index) ?? '',
+    isCorrect: !unmatchedItemIndexes.has(index),
+    correction: item.answer,
+  }))
+  const missingItems = items.filter((_, index) => unmatchedItemIndexes.has(index)).map((item) => item.answer)
+  const incompleteSubmittedItems = unmatchedSubmittedItems.filter((submittedItem) => {
+    return !items.some((item) => gradeLooseAnswer(item, submittedItem))
+  })
+  const closestIncompleteListItem =
+    field.listScoring === 'per-item' && incompleteSubmittedItems.length > 0 && missingItems.length > 0
+      ? incompleteSubmittedItems
+          .flatMap((submitted) => {
+            return missingItems.map((expected) => ({
+              submitted,
+              expected,
+              similarity: getWordSimilarity(expected, submitted),
+            }))
+          })
+          .reduce((closest, candidate) => (candidate.similarity > closest.similarity ? candidate : closest))
+      : undefined
+  const shouldShowClosestIncompleteItem = Boolean(closestIncompleteListItem && closestIncompleteListItem.similarity >= 0.5)
+  const unexpectedListItems = field.listScoring === 'all-or-nothing' ? unmatchedSubmittedItems : []
+  const hasTargetedFeedback = shouldShowClosestIncompleteItem || unexpectedListItems.length > 0
+
+  return {
+    fieldId: field.id,
+    answer,
+    isCorrect: field.listScoring === 'all-or-nothing' ? exactListMatch : earnedPoints === field.points,
+    correction: field.answer,
+    earnedPoints,
+    possiblePoints: field.points,
+    targetedFeedback: hasTargetedFeedback
+      ? {
+          closestIncompleteListItem:
+            shouldShowClosestIncompleteItem && closestIncompleteListItem
+              ? {
+                  submitted: closestIncompleteListItem.submitted,
+                  expected: closestIncompleteListItem.expected,
+                }
+              : undefined,
+          unexpectedListItems: unexpectedListItems.length > 0 ? unexpectedListItems : undefined,
+        }
+      : undefined,
+    partGrades,
+    missingItems,
+  }
+}
+
+function gradeComposite(field: StudyField, answer: string, answers: AnswerMap): FieldGrade {
+  const parts = field.parts ?? []
+  const hasPartAnswers = parts.some((part) => {
+    return Object.prototype.hasOwnProperty.call(answers, getFieldPartAnswerId(field.id, part.id))
+  })
+
+  if (!hasPartAnswers) {
+    const isCorrect = gradeLooseText(field, answer)
 
     return {
       fieldId: field.id,
       answer,
-      isCorrect: rankNameIsCorrect && payGradeIsCorrect,
+      isCorrect,
+      correction: field.answer,
+      earnedPoints: isCorrect ? field.points : 0,
+      possiblePoints: field.points,
+      partGrades: parts.map((part) => ({
+        partId: getFieldPartAnswerId(field.id, part.id),
+        answer: '',
+        isCorrect,
+        correction: part.answer,
+      })),
+    }
+  }
+
+  const partGrades = parts.map((part) => {
+    const partId = getFieldPartAnswerId(field.id, part.id)
+    const partAnswer = answers[partId] ?? ''
+
+    return {
+      partId,
+      answer: partAnswer,
+      isCorrect: gradeAnswerSpec(part, part.inputKind, partAnswer),
+      correction: part.answer,
+    }
+  })
+  const isCorrect = partGrades.length > 0 && partGrades.every((part) => part.isCorrect)
+
+  return {
+    fieldId: field.id,
+    answer,
+    isCorrect,
+    correction: field.answer,
+    earnedPoints: isCorrect ? field.points : 0,
+    possiblePoints: field.points,
+    partGrades,
+  }
+}
+
+const CODE_ARTICLE_LABEL_PATTERN =
+  /^\s*(?:([a-f])\s*[.)]|([1-6])(?:\s*[.)])?|article\s+(vi|iv|v|iii|ii|i)(?:\s*[.:)])?)\s+/iu
+
+function parseCodeArticleLabel(answer: string): { label: string; body: string } | undefined {
+  const normalizedAnswer = normalizeTypography(answer)
+  const match = normalizedAnswer.match(CODE_ARTICLE_LABEL_PATTERN)
+
+  if (!match) {
+    return undefined
+  }
+
+  const label = match[1] ? match[1] : match[2] ? match[2] : `article${match[3]}`
+
+  return {
+    label: normalizeWithoutWhitespaceOrPunctuation(label),
+    body: normalizedAnswer.slice(match[0].length),
+  }
+}
+
+function gradeCodeArticle(field: StudyField, answer: string): boolean {
+  const parsedLabel = parseCodeArticleLabel(answer)
+
+  if (!parsedLabel) {
+    return gradeLooseText(field, answer)
+  }
+
+  const acceptedLabels = (field.acceptedLeadingLabels ?? []).map(normalizeWithoutWhitespaceOrPunctuation)
+
+  return acceptedLabels.includes(parsedLabel.label) && gradeLooseText(field, parsedLabel.body)
+}
+
+function shouldProvideWordDifference(field: StudyField): boolean {
+  return (
+    field.group === 'national-anthem-lyrics' ||
+    field.group === 'army-song-lyrics' ||
+    field.id === 'code-of-conduct-article-4' ||
+    field.id === 'code-of-conduct-article-5'
+  )
+}
+
+function getWordFeedbackAnswer(field: StudyField, answer: string): string | undefined {
+  if (field.gradingProfile !== 'code-article') {
+    return answer
+  }
+
+  const parsedLabel = parseCodeArticleLabel(answer)
+
+  if (!parsedLabel) {
+    return answer
+  }
+
+  const acceptedLabels = (field.acceptedLeadingLabels ?? []).map(normalizeWithoutWhitespaceOrPunctuation)
+  return acceptedLabels.includes(parsedLabel.label) ? parsedLabel.body : undefined
+}
+
+export function gradeField(
+  field: StudyField,
+  answer: string,
+  payGradeAnswer = '',
+  answers: AnswerMap = {},
+): FieldGrade {
+  if (field.gradingProfile === 'rank-identification') {
+    const rankNameIsCorrect = gradeRank(field, answer)
+    const payGradeIsCorrect = gradePayGrade(field, payGradeAnswer)
+    const payGradeCorrection = field.payGrade ?? ''
+    const isCorrect = rankNameIsCorrect && payGradeIsCorrect
+
+    return {
+      fieldId: field.id,
+      answer,
+      isCorrect,
       correction: `${field.answer}, Pay Grade: ${payGradeCorrection}`,
+      earnedPoints: isCorrect ? field.points : 0,
+      possiblePoints: field.points,
       rankNameIsCorrect,
       payGradeAnswer,
       payGradeIsCorrect,
@@ -305,37 +656,66 @@ export function gradeField(field: StudyField, answer: string, payGradeAnswer = '
     }
   }
 
-  const isCorrect = isArmyValuesField(field)
-    ? gradeArmyValue(field, answer)
-    : isSoldiersCreedField(field) || isGeneralOrdersField(field) || isSpecialOrdersField(field)
-      ? gradeLooseText(field, answer)
-      : isMilitaryTimeField(field)
-        ? gradeMilitaryTime(field, answer)
-        : isPhoneticAlphabetField(field)
-          ? gradePhoneticAlphabet(field, answer)
-          : gradeText(field, answer)
+  if (field.gradingProfile === 'unordered-recitation') {
+    return gradeUnorderedList(field, answer)
+  }
+
+  if (field.gradingProfile === 'all-or-nothing-composite') {
+    return gradeComposite(field, answer, answers)
+  }
+
+  const isCorrect =
+    field.inputKind === 'four-digit-year'
+      ? gradeFourDigitYear(field, answer)
+      : field.gradingProfile === 'army-value'
+        ? gradeArmyValue(field, answer)
+        : field.gradingProfile === 'recitation'
+          ? gradeLooseText(field, answer)
+          : field.gradingProfile === 'formatted-value'
+            ? gradeMilitaryTime(field, answer)
+            : field.gradingProfile === 'phonetic'
+              ? gradePhoneticAlphabet(field, answer)
+              : field.gradingProfile === 'code-article'
+                ? gradeCodeArticle(field, answer)
+                : field.gradingProfile === 'short-text'
+                  ? gradeLooseText(field, answer)
+                  : gradeText(field, answer)
+  const wordFeedbackAnswer = getWordFeedbackAnswer(field, answer)
+  const firstWordDifference =
+    !isCorrect && shouldProvideWordDifference(field) && wordFeedbackAnswer !== undefined
+      ? getFirstWordDifference(field, wordFeedbackAnswer)
+      : undefined
 
   return {
     fieldId: field.id,
     answer,
     isCorrect,
     correction: field.answer,
+    earnedPoints: isCorrect ? field.points : 0,
+    possiblePoints: field.points,
+    targetedFeedback: firstWordDifference ? { firstWordDifference } : undefined,
   }
 }
 
 export function gradeSections(sections: readonly StudySection[], answers: AnswerMap): SectionGrade[] {
   return sections.map((section) => {
     const fields = section.fields.map((field) => {
-      return gradeField(field, answers[field.id] ?? '', answers[getRankPayGradeFieldId(field.id)] ?? '')
+      return gradeField(
+        field,
+        answers[field.id] ?? '',
+        answers[getRankPayGradeFieldId(field.id)] ?? '',
+        answers,
+      )
     })
-    const correctCount = fields.filter((field) => field.isCorrect).length
+    const correctCount = fields.reduce((count, field) => count + field.earnedPoints, 0)
+    const totalCount = fields.reduce((count, field) => count + field.possiblePoints, 0)
 
     return {
       sectionId: section.id,
       title: section.title,
       fields,
       correctCount,
-      totalCount: fields.length,
+      totalCount,
     }
   })
 }

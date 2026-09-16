@@ -6,12 +6,71 @@ export type GreenBookSectionId =
   | 'special-orders'
   | 'phonetic-alphabet'
   | 'rank-structure'
+  | 'battle-buddy-system'
+  | 'golden-rules'
+  | 'improper-relationships'
+  | 'national-anthem-army-song'
+  | 'code-of-conduct'
+
+export const DEFAULT_SECTION_IDS = [
+  'army-values',
+  'soldiers-creed',
+  'military-time',
+  'general-orders',
+  'special-orders',
+  'phonetic-alphabet',
+  'rank-structure',
+] as const satisfies readonly GreenBookSectionId[]
+
+export const ADDITIONAL_SECTION_IDS = [
+  'battle-buddy-system',
+  'golden-rules',
+  'improper-relationships',
+  'national-anthem-army-song',
+  'code-of-conduct',
+] as const satisfies readonly GreenBookSectionId[]
+
+export type GreenBookInputKind = 'text' | 'textarea' | 'four-digit-year' | 'unordered-list' | 'composite'
+
+export type GreenBookGradingProfile =
+  | 'army-value'
+  | 'recitation'
+  | 'short-text'
+  | 'formatted-value'
+  | 'phonetic'
+  | 'rank-identification'
+  | 'unordered-recitation'
+  | 'all-or-nothing-composite'
+  | 'code-article'
+
+export type GreenBookFieldPart = {
+  id: string
+  label: string
+  answer: string
+  aliases?: readonly string[]
+  inputKind: 'text' | 'textarea' | 'four-digit-year'
+}
+
+export type GreenBookListItem = {
+  id: string
+  answer: string
+  aliases?: readonly string[]
+}
 
 export type GreenBookField = {
   id: string
   prompt: string
   answer: string
   aliases?: readonly string[]
+  inputKind: GreenBookInputKind
+  gradingProfile: GreenBookGradingProfile
+  points: number
+  group?: string
+  parts?: readonly GreenBookFieldPart[]
+  items?: readonly GreenBookListItem[]
+  rowCount?: number
+  listScoring?: 'per-item' | 'all-or-nothing'
+  acceptedLeadingLabels?: readonly string[]
   postGradeNote?: string
   referenceText?: string
   imageSrc?: string | null
@@ -24,13 +83,72 @@ export function getRankPayGradeFieldId(rankFieldId: string): string {
   return `${rankFieldId}:pay-grade`
 }
 
+export function getFieldPartAnswerId(fieldId: string, partId: string): string {
+  return `${fieldId}:${partId}`
+}
+
+export type GreenBookSectionGroup = {
+  id: string
+  title: string
+}
+
+export type GreenBookContextBlock = {
+  id: string
+  title?: string
+  text: string
+}
+
 export type GreenBookSection = {
   id: GreenBookSectionId
   title: string
   fields: readonly GreenBookField[]
+  defaultIncluded: boolean
+  groups?: readonly GreenBookSectionGroup[]
+  context?: readonly GreenBookContextBlock[]
 }
 
-export const greenBookSections = [
+type GreenBookFieldDefinition = Omit<GreenBookField, 'inputKind' | 'gradingProfile' | 'points'> &
+  Partial<Pick<GreenBookField, 'inputKind' | 'gradingProfile' | 'points'>>
+
+type GreenBookSectionDefinition = Omit<GreenBookSection, 'fields' | 'defaultIncluded'> & {
+  fields: readonly GreenBookFieldDefinition[]
+}
+
+const LEGACY_SECTION_DEFAULTS: Record<
+  (typeof DEFAULT_SECTION_IDS)[number],
+  Pick<GreenBookField, 'inputKind' | 'gradingProfile'>
+> = {
+  'army-values': { inputKind: 'text', gradingProfile: 'army-value' },
+  'soldiers-creed': { inputKind: 'textarea', gradingProfile: 'recitation' },
+  'military-time': { inputKind: 'text', gradingProfile: 'formatted-value' },
+  'general-orders': { inputKind: 'textarea', gradingProfile: 'recitation' },
+  'special-orders': { inputKind: 'textarea', gradingProfile: 'recitation' },
+  'phonetic-alphabet': { inputKind: 'text', gradingProfile: 'phonetic' },
+  'rank-structure': { inputKind: 'composite', gradingProfile: 'rank-identification' },
+}
+
+function isDefaultSectionId(
+  sectionId: GreenBookSectionId,
+): sectionId is (typeof DEFAULT_SECTION_IDS)[number] {
+  return (DEFAULT_SECTION_IDS as readonly GreenBookSectionId[]).includes(sectionId)
+}
+
+function defineSection(section: GreenBookSectionDefinition): GreenBookSection {
+  const defaults = isDefaultSectionId(section.id) ? LEGACY_SECTION_DEFAULTS[section.id] : undefined
+
+  return {
+    ...section,
+    defaultIncluded: isDefaultSectionId(section.id),
+    fields: section.fields.map((field) => ({
+      inputKind: defaults?.inputKind ?? 'text',
+      gradingProfile: defaults?.gradingProfile ?? 'short-text',
+      points: 1,
+      ...field,
+    })),
+  }
+}
+
+const greenBookSectionDefinitions = [
   {
     id: 'army-values',
     title: 'Army Values',
@@ -541,4 +659,576 @@ export const greenBookSections = [
       },
     ],
   },
-] as const satisfies readonly GreenBookSection[]
+  {
+    id: 'battle-buddy-system',
+    title: 'Battle Buddy System',
+    context: [
+      {
+        id: 'battle-buddy-introduction',
+        text:
+          "Soldiers rely on one another to stay motivated and reach peak performance. Although required in Initial Military Training, Soldiers will form natural bonds with their fellow Soldiers as part of Army culture. To contribute to this team spirit, we live by the buddy system. A buddy team is usually defined as two Soldiers (same sex) in the same unit who always look after each other.\n\nBy getting to know other Soldiers on a professional and personal level, you learn how to improve yourself and encourage others. Working together, you and your battle buddy learn initiative, responsibility, trust, and dependability.\n\nWhile at the reception battalion, BCT or OSUT, Soldiers are placed in buddy teams. With the requirement to excel in Army training, some Soldiers need more positive reinforcement than others. For that reason, you may also be paired based on your strengths, so you and your buddy can complement each other's weaknesses.",
+      },
+      {
+        id: 'battle-buddy-closing',
+        text:
+          'In the end, the most rewarding part of the buddy system is making every Soldier your buddy; any buddy could help you accomplish your mission or save your life.',
+      },
+    ],
+    fields: [
+      {
+        id: 'battle-buddy-responsibilities',
+        prompt: 'List the eight battle buddy responsibilities.',
+        answer:
+          "Never leave your buddy alone.\nNever let your buddy go into an office or room by themselves; even if a drill sergeant, or instructor says it's okay (If it happens, report it).\nKeep your buddy safe and free from harm.\nAlways know the whereabouts of your buddy.\nPass information to your buddy.\nEncourage and support your buddy to train harder and do better.\nHelp your buddy solve problems.\nInform Cadre of any changes in your buddy's behavior.",
+        inputKind: 'unordered-list',
+        gradingProfile: 'unordered-recitation',
+        points: 8,
+        rowCount: 8,
+        listScoring: 'per-item',
+        items: [
+          { id: 'never-leave-alone', answer: 'Never leave your buddy alone.' },
+          {
+            id: 'never-enter-alone',
+            answer:
+              "Never let your buddy go into an office or room by themselves; even if a drill sergeant, or instructor says it's okay (If it happens, report it).",
+          },
+          { id: 'keep-safe', answer: 'Keep your buddy safe and free from harm.' },
+          { id: 'know-whereabouts', answer: 'Always know the whereabouts of your buddy.' },
+          { id: 'pass-information', answer: 'Pass information to your buddy.' },
+          {
+            id: 'encourage-and-support',
+            answer: 'Encourage and support your buddy to train harder and do better.',
+          },
+          { id: 'help-solve-problems', answer: 'Help your buddy solve problems.' },
+          { id: 'inform-cadre', answer: "Inform Cadre of any changes in your buddy's behavior." },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'golden-rules',
+    title: 'BCT/OSUT/AIT “Golden Rules”',
+    fields: [
+      {
+        id: 'golden-rule-1',
+        prompt: 'Golden Rule #1',
+        answer: 'DO NOT: bully, haze, assault or harass a fellow Soldier.\nDO: help and assist your teammate.',
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        parts: [
+          {
+            id: 'do-not',
+            label: 'DO NOT',
+            answer: 'bully, haze, assault or harass a fellow Soldier.',
+            inputKind: 'textarea',
+          },
+          { id: 'do', label: 'DO', answer: 'help and assist your teammate.', inputKind: 'textarea' },
+        ],
+      },
+      {
+        id: 'golden-rule-2',
+        prompt: 'Golden Rule #2',
+        answer:
+          'DO NOT: use vulgar language, rude gestures, or discriminate against others.\nDO: treat everyone with dignity and respect.',
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        parts: [
+          {
+            id: 'do-not',
+            label: 'DO NOT',
+            answer: 'use vulgar language, rude gestures, or discriminate against others.',
+            inputKind: 'textarea',
+          },
+          {
+            id: 'do',
+            label: 'DO',
+            answer: 'treat everyone with dignity and respect.',
+            inputKind: 'textarea',
+          },
+        ],
+      },
+      {
+        id: 'golden-rule-3',
+        prompt: 'Golden Rule #3',
+        answer:
+          "DO NOT: kiss, attempt to kiss, or touch a fellow Soldier.\nDO: respect your teammate's personal space.",
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        parts: [
+          {
+            id: 'do-not',
+            label: 'DO NOT',
+            answer: 'kiss, attempt to kiss, or touch a fellow Soldier.',
+            inputKind: 'textarea',
+          },
+          {
+            id: 'do',
+            label: 'DO',
+            answer: "respect your teammate's personal space.",
+            inputKind: 'textarea',
+          },
+        ],
+      },
+      {
+        id: 'golden-rule-4',
+        prompt: 'Golden Rule #4',
+        answer:
+          'DO NOT: steal or take something that does not belong to you.\nDO: build trust with teammates through your ethical and disciplined actions.',
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        parts: [
+          {
+            id: 'do-not',
+            label: 'DO NOT',
+            answer: 'steal or take something that does not belong to you.',
+            inputKind: 'textarea',
+          },
+          {
+            id: 'do',
+            label: 'DO',
+            answer: 'build trust with teammates through your ethical and disciplined actions.',
+            inputKind: 'textarea',
+          },
+        ],
+      },
+      {
+        id: 'golden-rule-5',
+        prompt: 'Golden Rule #5',
+        answer:
+          'DO NOT: go anywhere without your battle buddy.\nDO: report violations of policies and regulations to your platoon and company leadership.',
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        parts: [
+          {
+            id: 'do-not',
+            label: 'DO NOT',
+            answer: 'go anywhere without your battle buddy.',
+            inputKind: 'textarea',
+          },
+          {
+            id: 'do',
+            label: 'DO',
+            answer: 'report violations of policies and regulations to your platoon and company leadership.',
+            inputKind: 'textarea',
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: 'improper-relationships',
+    title: 'Improper Relationships',
+    context: [
+      {
+        id: 'improper-relationships-awareness-note',
+        title: 'For awareness',
+        text: 'Trainees sign a written acknowledgment of these rules; trainers complete a separate acknowledgment.',
+      },
+    ],
+    fields: [
+      {
+        id: 'improper-relationships-categories',
+        prompt: 'What are the two major categories of illegal associations?',
+        answer: 'Cadre-Trainee\nTrainee-Trainee',
+        inputKind: 'unordered-list',
+        gradingProfile: 'unordered-recitation',
+        points: 1,
+        rowCount: 2,
+        listScoring: 'all-or-nothing',
+        items: [
+          {
+            id: 'cadre-trainee',
+            answer: 'Cadre-Trainee',
+            aliases: ['Cadre/Trainee', 'Cadre Trainee'],
+          },
+          {
+            id: 'trainee-trainee',
+            answer: 'Trainee-Trainee',
+            aliases: ['Trainee/Trainee', 'Trainee Trainee'],
+          },
+        ],
+      },
+      {
+        id: 'improper-relationships-training-mission',
+        prompt: 'When is a relationship between permanent party personnel and a Trainee Soldier permitted?',
+        answer: 'required by the training mission',
+        inputKind: 'text',
+        gradingProfile: 'short-text',
+        points: 1,
+      },
+      {
+        id: 'improper-relationships-no-consensual',
+        prompt: 'Recite the rule about consensual relationships during BCT/OSUT/AIT.',
+        answer:
+          'There are no consensual relationships between cadre/permanent party - Trainee or between Trainee-Trainee during BCT/OSUT/AIT.',
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+      },
+    ],
+  },
+  {
+    id: 'national-anthem-army-song',
+    title: 'National Anthem & Army Song',
+    groups: [
+      { id: 'national-anthem-background', title: 'National Anthem — Background' },
+      { id: 'national-anthem-lyrics', title: 'National Anthem — Lyrics' },
+      { id: 'army-song-background', title: 'Army Song — Background' },
+      { id: 'army-song-lyrics', title: 'Army Song — Lyrics' },
+    ],
+    context: [
+      {
+        id: 'national-anthem-source-context',
+        title: 'The National Anthem',
+        text:
+          "Written by Francis Scott Key in 1814, the Star Spangled Banner was played at military occasions ordered by President Woodrow Wilson in 1916, and in 1931 was designated as our national anthem by an Act of Congress.\n\nThe Star-Spangled Banner is the timeless rendition of our sacred American Flag and country's patriotic spirit.",
+      },
+      {
+        id: 'army-song-source-context',
+        title: 'The Army Song',
+        text:
+          'The Army Song tells the heroic story of our past, present, and future. It was originally written by First Lieutenant Edmund L. Gruber, a Field Artillery officer, in 1908 and it was adopted in 1952 as the official song of our Army. As a time-honored tradition, the song is played at the conclusion of every U.S. Army ceremony in which all Soldiers are expected to stand and proudly sing the lyrics.',
+      },
+    ],
+    fields: [
+      {
+        id: 'national-anthem-author',
+        prompt: 'Who wrote the Star-Spangled Banner?',
+        answer: 'Francis Scott Key',
+        inputKind: 'text',
+        gradingProfile: 'short-text',
+        points: 1,
+        group: 'national-anthem-background',
+      },
+      {
+        id: 'national-anthem-written-year',
+        prompt: 'In what year was it written?',
+        answer: '1814',
+        inputKind: 'four-digit-year',
+        gradingProfile: 'short-text',
+        points: 1,
+        group: 'national-anthem-background',
+      },
+      {
+        id: 'national-anthem-military-occasions',
+        prompt: 'Who ordered it played at military occasions, and in what year?',
+        answer: 'President Woodrow Wilson — 1916',
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        group: 'national-anthem-background',
+        parts: [
+          {
+            id: 'president',
+            label: 'President',
+            answer: 'President Woodrow Wilson',
+            inputKind: 'text',
+          },
+          { id: 'year', label: 'Year', answer: '1916', inputKind: 'four-digit-year' },
+        ],
+      },
+      {
+        id: 'national-anthem-designation',
+        prompt: 'How and when was it designated as our national anthem?',
+        answer: 'An Act of Congress — 1931',
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        group: 'national-anthem-background',
+        parts: [
+          { id: 'action', label: 'Action', answer: 'An Act of Congress', inputKind: 'text' },
+          { id: 'year', label: 'Year', answer: '1931', inputKind: 'four-digit-year' },
+        ],
+      },
+      {
+        id: 'national-anthem-represents',
+        prompt: 'What does the Star-Spangled Banner represent?',
+        answer: "The timeless rendition of our sacred American Flag and country's patriotic spirit.",
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'national-anthem-background',
+      },
+      {
+        id: 'national-anthem-lyrics-1',
+        prompt: 'National Anthem — lyric block 1',
+        answer: "Oh, say, can you see, by the dawn's early light,",
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'national-anthem-lyrics',
+      },
+      {
+        id: 'national-anthem-lyrics-2',
+        prompt: 'National Anthem — lyric block 2',
+        answer: "What so proudly we hailed at the twilight's last gleaming?",
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'national-anthem-lyrics',
+      },
+      {
+        id: 'national-anthem-lyrics-3',
+        prompt: 'National Anthem — lyric block 3',
+        answer: "Whose broad stripes and bright stars, thro' the perilous fight'",
+        aliases: ['Whose broad stripes and bright stars, through the perilous fight'],
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'national-anthem-lyrics',
+      },
+      {
+        id: 'national-anthem-lyrics-4',
+        prompt: 'National Anthem — lyric block 4',
+        answer: "O'er the ramparts we watched were so gallantly streaming.",
+        aliases: ['Over the ramparts we watched were so gallantly streaming.'],
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'national-anthem-lyrics',
+      },
+      {
+        id: 'national-anthem-lyrics-5',
+        prompt: 'National Anthem — lyric block 5',
+        answer:
+          'And the rockets’ red glare, the bombs bursting in air, gave proof through the night that our flag was still there. Oh, say, does that Star-Spangled Banner yet wave',
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'national-anthem-lyrics',
+      },
+      {
+        id: 'national-anthem-lyrics-6',
+        prompt: 'National Anthem — lyric block 6',
+        answer: "O'er the land of the free and the home of the brave?",
+        aliases: ['Over the land of the free and the home of the brave?'],
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'national-anthem-lyrics',
+      },
+      {
+        id: 'army-song-story',
+        prompt: "What does the Army Song's heroic story cover?",
+        answer: 'Our past, present, and future.',
+        inputKind: 'text',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-background',
+      },
+      {
+        id: 'army-song-author',
+        prompt: 'Who originally wrote the Army Song, and what was his branch?',
+        answer: 'First Lieutenant Edmund L. Gruber — Field Artillery',
+        aliases: ['1LT Edmund L. Gruber — Field Artillery'],
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        group: 'army-song-background',
+        parts: [
+          {
+            id: 'author',
+            label: 'Author',
+            answer: 'First Lieutenant Edmund L. Gruber',
+            aliases: ['1LT Edmund L. Gruber'],
+            inputKind: 'text',
+          },
+          { id: 'branch', label: 'Branch', answer: 'Field Artillery', inputKind: 'text' },
+        ],
+      },
+      {
+        id: 'army-song-written-year',
+        prompt: 'In what year was the Army Song written?',
+        answer: '1908',
+        inputKind: 'four-digit-year',
+        gradingProfile: 'short-text',
+        points: 1,
+        group: 'army-song-background',
+      },
+      {
+        id: 'army-song-adopted-year',
+        prompt: 'In what year was it adopted as the official song of our Army?',
+        answer: '1952',
+        inputKind: 'four-digit-year',
+        gradingProfile: 'short-text',
+        points: 1,
+        group: 'army-song-background',
+      },
+      {
+        id: 'army-song-ceremony',
+        prompt: 'When is the Army Song played, and what are Soldiers expected to do?',
+        answer:
+          'At the conclusion of every U.S. Army ceremony — Stand and proudly sing the lyrics',
+        inputKind: 'composite',
+        gradingProfile: 'all-or-nothing-composite',
+        points: 1,
+        group: 'army-song-background',
+        parts: [
+          {
+            id: 'when',
+            label: 'When played',
+            answer: 'At the conclusion of every U.S. Army ceremony',
+            inputKind: 'text',
+          },
+          {
+            id: 'response',
+            label: "Soldiers' response",
+            answer: 'Stand and proudly sing the lyrics',
+            inputKind: 'text',
+          },
+        ],
+      },
+      {
+        id: 'army-song-lyrics-1',
+        prompt: 'Army Song — lyric block 1',
+        answer: 'March along, sing our song, with the Army of the free.',
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-lyrics',
+      },
+      {
+        id: 'army-song-lyrics-2',
+        prompt: 'Army Song — lyric block 2',
+        answer: 'Count the brave, count the true, who have fought to victory.',
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-lyrics',
+      },
+      {
+        id: 'army-song-lyrics-3',
+        prompt: 'Army Song — lyric block 3',
+        answer: "We're the Army and proud of our name! We're the Army and proudly proclaim.",
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-lyrics',
+      },
+      {
+        id: 'army-song-lyrics-4',
+        prompt: 'Army Song — lyric block 4',
+        answer:
+          "First to fight for the right, And to build the Nation's might, And The Army Goes Rolling Along.",
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-lyrics',
+      },
+      {
+        id: 'army-song-lyrics-5',
+        prompt: 'Army Song — lyric block 5',
+        answer:
+          "Proud of all we have done, Fighting till the battle's won, And the Army Goes Rolling Along.",
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-lyrics',
+      },
+      {
+        id: 'army-song-lyrics-6',
+        prompt: 'Army Song — lyric block 6',
+        answer:
+          "Then it's Hi! Hi! Hey! The Army's on its way. Count off the cadence loud and strong.",
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-lyrics',
+      },
+      {
+        id: 'army-song-lyrics-7',
+        prompt: 'Army Song — lyric block 7',
+        answer:
+          "For where e'er we go, you will always know, That The Army Goes Rolling Along.",
+        aliases: ["For where'er we go, you will always know, That The Army Goes Rolling Along."],
+        inputKind: 'textarea',
+        gradingProfile: 'recitation',
+        points: 1,
+        group: 'army-song-lyrics',
+      },
+    ],
+  },
+  {
+    id: 'code-of-conduct',
+    title: 'Code of Conduct',
+    context: [
+      {
+        id: 'code-of-conduct-introduction',
+        text:
+          "The Code of Conduct is our guide for how all Soldiers, Sailors, Airmen, Marines, and Coast Guard must conduct themselves if captured by the enemy. The Code of Conduct, in six brief articles, addresses the intense situations and decisions that to some degree, all military services members could encounter. It contains the critical information for U.S. prisoners of war to survive honorably while faithfully resisting the enemy's efforts of exploitation.",
+      },
+    ],
+    fields: [
+      {
+        id: 'code-of-conduct-article-1',
+        prompt: 'Article I',
+        answer:
+          'I am an American, fighting in the forces which guard my country and our way of life. I am prepared to give my life in their defense.',
+        inputKind: 'textarea',
+        gradingProfile: 'code-article',
+        points: 1,
+        acceptedLeadingLabels: ['a.', '1', 'Article I'],
+      },
+      {
+        id: 'code-of-conduct-article-2',
+        prompt: 'Article II',
+        answer:
+          'I will never surrender of my own free will. If in command, I will never surrender the members of my command while they still have the means to resist.',
+        inputKind: 'textarea',
+        gradingProfile: 'code-article',
+        points: 1,
+        acceptedLeadingLabels: ['b.', '2', 'Article II'],
+      },
+      {
+        id: 'code-of-conduct-article-3',
+        prompt: 'Article III',
+        answer:
+          'If I am captured, I will continue to resist by all means available. I will make every effort to escape and aid others to escape. I will accept neither parole nor special favors from the enemy.',
+        aliases: [
+          'If I am captured, I will continue to resist by all means available. I will make every effort to escape and to aid others to escape. I will accept neither parole nor special favors from the enemy.',
+        ],
+        inputKind: 'textarea',
+        gradingProfile: 'code-article',
+        points: 1,
+        acceptedLeadingLabels: ['c.', '3', 'Article III'],
+      },
+      {
+        id: 'code-of-conduct-article-4',
+        prompt: 'Article IV',
+        answer:
+          'If I become a prisoner of war, I will keep faith with my fellow prisoners. I will give no information or take part in any action which might be harmful to my comrades. If I am senior, I will take command. If not, I will obey the lawful orders of those appointed over me and will back them up in every way.',
+        inputKind: 'textarea',
+        gradingProfile: 'code-article',
+        points: 1,
+        acceptedLeadingLabels: ['d.', '4', 'Article IV'],
+      },
+      {
+        id: 'code-of-conduct-article-5',
+        prompt: 'Article V',
+        answer:
+          'When questioned, should I become a prisoner of war, I am required to give name, rank, service number, and date of birth. I will evade answering further questions to the utmost of my ability. I will make no oral or written statements disloyal to my country and its allies or harmful to their cause.',
+        inputKind: 'textarea',
+        gradingProfile: 'code-article',
+        points: 1,
+        acceptedLeadingLabels: ['e.', '5', 'Article V'],
+      },
+      {
+        id: 'code-of-conduct-article-6',
+        prompt: 'Article VI',
+        answer:
+          'I will never forget that I am an American, fighting for freedom, responsible for my actions, and dedicated to the principles which made my country free. I will trust in my God and in the United States of America.',
+        inputKind: 'textarea',
+        gradingProfile: 'code-article',
+        points: 1,
+        acceptedLeadingLabels: ['f.', '6', 'Article VI'],
+      },
+    ],
+  },
+] satisfies readonly GreenBookSectionDefinition[]
+
+export const greenBookSections: readonly GreenBookSection[] = greenBookSectionDefinitions.map(defineSection)
