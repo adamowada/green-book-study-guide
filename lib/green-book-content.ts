@@ -12,6 +12,7 @@ export type GreenBookField = {
   prompt: string
   answer: string
   aliases?: readonly string[]
+  postGradeNote?: string
   referenceText?: string
   imageSrc?: string | null
   visualLabel?: string
@@ -207,6 +208,11 @@ export const greenBookSections = [
         prompt: 'General Order 3',
         answer:
           'I will report violations of my special orders, emergencies, and anything not covered in my instructions to the commander of relief.',
+        aliases: [
+          'I will report violations of my special orders, emergencies, and anything not covered in my instructions to the commander of the relief.',
+        ],
+        postGradeNote:
+          'Wording note: Official Army publications use both “commander of relief” and “commander of the relief.” Both are accepted here; use the version your cadre teaches.',
       },
     ],
   },

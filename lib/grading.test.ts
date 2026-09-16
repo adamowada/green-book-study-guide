@@ -24,6 +24,7 @@ describe('gradeField', () => {
   const selflessService = findField('army-values-selfless-service')
   const soldiersCreedLine1 = findField('soldiers-creed-1')
   const generalOrder2 = findField('general-order-2')
+  const generalOrder3 = findField('general-order-3')
   const specialOrders = findField('special-orders-definition')
   const fourteenHundred = findField('military-time-1400')
   const alpha = findField('phonetic-a')
@@ -80,6 +81,22 @@ describe('gradeField', () => {
       gradeField(specialOrders, 'additional requirements or instructions that augment the general orders').isCorrect,
     ).toBe(true)
     expect(gradeField(specialOrders, 'additional requirements that augment the general orders').isCorrect).toBe(false)
+  })
+
+  it('accepts both official endings for General Order 3', () => {
+    expect(gradeField(generalOrder3, generalOrder3.answer).isCorrect).toBe(true)
+    expect(
+      gradeField(
+        generalOrder3,
+        'I will report violations of my special orders, emergencies, and anything not covered in my instructions to the commander of the relief.',
+      ).isCorrect,
+    ).toBe(true)
+    expect(
+      gradeField(
+        generalOrder3,
+        'I will report violations of my special orders, emergencies, and anything not covered in my instructions to the commander.',
+      ).isCorrect,
+    ).toBe(false)
   })
 
   it('accepts only the allowed military time answer forms', () => {

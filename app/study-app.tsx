@@ -630,7 +630,12 @@ function StudyFieldCard({
 }) {
   const fieldId = `field-${field.id}`
   const correctionId = `${fieldId}-correction`
-  const describedBy = grade && !grade.isCorrect ? correctionId : undefined
+  const postGradeNoteId = `${fieldId}-note`
+  const describedBy = grade
+    ? [!grade.isCorrect ? correctionId : undefined, field.postGradeNote ? postGradeNoteId : undefined]
+        .filter(Boolean)
+        .join(' ') || undefined
+    : undefined
   const isWrong = Boolean(grade && !grade.isCorrect)
   const isCorrect = Boolean(grade?.isCorrect)
   const placeholder = getFieldPlaceholder(field.answer, mode)
@@ -749,6 +754,12 @@ function StudyFieldCard({
           autoComplete="off"
         />
       )}
+
+      {grade && field.postGradeNote ? (
+        <p id={postGradeNoteId} className="mt-3 text-sm/6 text-zinc-600">
+          {field.postGradeNote}
+        </p>
+      ) : null}
 
       <Correction id={correctionId} grade={grade} />
     </div>
